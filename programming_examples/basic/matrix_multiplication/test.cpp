@@ -70,7 +70,8 @@ int main(int argc, const char *argv[]) {
   int c_col_maj = vm["c_col_maj"].as<int>();
 
   // Fix the seed to ensure reproducibility in CI.
-  srand(1726250518); // srand(time(NULL));
+  srand(1726250518);
+  //srand(time(NULL));
 
   int M = vm["M"].as<int>();
   int K = vm["K"].as<int>();
@@ -157,6 +158,28 @@ int main(int argc, const char *argv[]) {
   if (verbosity >= 1) {
     std::cout << "Writing data into buffer objects.\n";
   }
+
+  /*
+  auto load_matrix = [](std::string filename, size_t volume, auto& vec) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        std::cerr << "Error: failed to open the file " << filename << std::endl;
+        exit(1);
+    }
+    file.read(reinterpret_cast<char*>(vec.data()), volume * sizeof(vec[0]));
+};
+
+    // Load Matrix A
+    std::vector<A_DATATYPE> AVec(A_VOLUME);
+    load_matrix("matrix_A.bin", A_VOLUME, AVec);
+    memcpy(bufA, AVec.data(), A_SIZE);
+
+    // Load Matrix B
+    std::vector<B_DATATYPE> BVec(B_VOLUME);
+    load_matrix("matrix_B.bin", B_VOLUME, BVec);
+    memcpy(bufB, BVec.data(), B_SIZE);
+  
+  */
 
   A_DATATYPE *bufA = bo_a.map<A_DATATYPE *>();
   std::vector<A_DATATYPE> AVec(A_VOLUME);

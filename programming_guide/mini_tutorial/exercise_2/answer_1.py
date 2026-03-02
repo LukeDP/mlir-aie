@@ -30,14 +30,14 @@ def exercise_2(input0, output):
     of_offsets = [tile_size * worker for worker in range(n_workers)]
 
     of_in = ObjectFifo(data_ty, name="in")
-    of_ins = of_in.cons().split(
+    of_ins = of_in.cons().split(        # Split to create multiple input FIFOs
         of_offsets,
         obj_types=[tile_ty] * n_workers,
         names=[f"in{worker}" for worker in range(n_workers)],
     )
 
     of_out = ObjectFifo(data_ty, name="out")
-    of_outs = of_out.prod().join(
+    of_outs = of_out.prod().join(       # Join to create multiple output FIFOs
         of_offsets,
         obj_types=[tile_ty] * n_workers,
         names=[f"out{worker}" for worker in range(n_workers)],

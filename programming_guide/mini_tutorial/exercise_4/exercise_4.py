@@ -80,7 +80,7 @@ def main():
     exercise_4(output)
 
     # Check the correctness of the result
-    USE_INPUT_VEC = True  # Set to False to switch to output for user testing
+    USE_INPUT_VEC = False  # Set to False to switch to output for user testing
     test_source = input0 if USE_INPUT_VEC else output
     e = np.equal(input0.numpy(), test_source.numpy())
     errors = np.size(e) - np.count_nonzero(e)

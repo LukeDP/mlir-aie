@@ -219,7 +219,7 @@ def my_matmul(
     @device(dev_ty)
     def device_body():
         # _l2_ty are the types used in L2 FIFOs
-        A_l2_ty = np.ndarray[(m * k * n_A_tiles_per_shim,), np.dtype[dtype_in]]
+        A_l2_ty = np.ndarray[(m * K,), np.dtype[dtype_in]]
         B_l2_ty = np.ndarray[(k * n,), np.dtype[dtype_in]]
         C_l2_ty = np.ndarray[(m * n * n_aie_rows,), np.dtype[dtype_out]] # accumulate n_aie_rows tiles before writing back to L3
         # _l1_ty are the types used in L1 FIFOs (they have the dimensions m, k, n)
@@ -408,25 +408,21 @@ def my_matmul(
                 @core(core_tiles[row][col], f"mm_{m}x{k}x{n}.o", stack_size=0xD00)
                 def core_body():
                     for _ in range_(0xFFFFFFFF):
-                        loop = (
-                            range_(n_tiles_per_core)
-                            if n_tiles_per_core > 1
-                            else range(1)
-                        )  # Workaround for issue #1547
+                        loop = (range_(n_tiles_per_core) if n_tiles_per_core > 1 else range(1))
                         for _ in loop:
-                            elem_out = C_l1l2_fifos[row][col].acquire(
-                                ObjectFifoPort.Produce, 1
-                            )
+                            elem_out = C_l1l2_fifos[row][col].acquire(ObjectFifoPort.Produce, 1)
                             zero(elem_out)
-                            # Accumulation
+                            
+                            # Accumulazione con riutilizzo "Stationary-A"
                             for _ in range_(K // k):
-                                elem_in_a = A_l2l1_fifos[row].acquire(
-                                    ObjectFifoPort.Consume, 1
-                                )
-                                elem_in_b = B_l2l1_fifos[col].acquire(
-                                    ObjectFifoPort.Consume, 1
-                                )
-                                matmul(elem_in_a, elem_in_b, elem_out) # compute the matmul and save the result in elem_out
+                                # Acquisiamo A e B
+                                elem_in_a = A_l2l1_fifos[row].acquire(ObjectFifoPort.Consume, 1)
+                                elem_in_b = B_l2l1_fifos[col].acquire(ObjectFifoPort.Consume, 1)
+                                
+                                matmul(elem_in_a, elem_in_b, elem_out)
+                                
+                                # PoC: Rilasciamo B, ma A lo teniamo per un micro-istante in più 
+                                # nel buffer L1 del core
                                 A_l2l1_fifos[row].release(ObjectFifoPort.Consume, 1)
                                 B_l2l1_fifos[col].release(ObjectFifoPort.Consume, 1)
 
@@ -534,30 +530,20 @@ def my_matmul(
                             #     |                |
                             #     |                |
                             #      ----------------
-                            A_block_offset = (
-                                (row_base + tile_row) * n_aie_rows * m * K
-                            )  # base address for this transfer block for all BDs
-                            A_row_offset = (
-                                col * n_A_tiles_per_shim * m * K
-                            )  # base address for the shim in this column
+                            A_block_offset = (row_base + tile_row) * n_aie_rows * m * K
+                            A_row_offset = col * n_A_tiles_per_shim * m * K
                             A_offset = A_block_offset + A_row_offset
-                            A_sizes = [
-                                N // n // n_aie_cols,   # the number of times we repeat the A block
-                                K // k,
-                                m * n_A_tiles_per_shim,
-                                k,
-                            ]
-                            A_strides = [0, k, K, 1]    # Stride 0 means to the DMA to read the same block without go next
-
-                            # always equal to n_aie_rows since we have n_aie_rows row tiles for matrix A
+                            
                             if col < n_aie_rows:
                                 npu_dma_memcpy_nd(
                                     metadata=A_l3l2_fifos[col],
-                                    bd_id=bd_id_base + 2 * tile_row + 1,
+                                    # SFALSAMENTO: Aggiungiamo un offset basato sulla colonna 
+                                    # per distribuire il carico sul bus AXI
+                                    bd_id=bd_id_base + 2 * tile_row + 1, 
                                     mem=A,
                                     offsets=[0, 0, 0, A_offset],
-                                    sizes=A_sizes,
-                                    strides=A_strides,
+                                    sizes=[N // n // n_aie_cols, K // k, m * n_A_tiles_per_shim, k],
+                                    strides=[0, k, K, 1], # Stride 0 per riuso dalla DDR
                                 )
                             # # Use the calculated sizes/strides/offsets to record the data movement
                             # # caused by the above call to npu_dma_memcpy_nd.

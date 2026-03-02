@@ -23,7 +23,7 @@ def exercise_1(input0, output):
     data_ty = np.ndarray[(data_size,), np.dtype[element_type]]
 
     # Dataflow with ObjectFifos
-    of_in = ObjectFifo(data_ty, name="in")
+    of_in = ObjectFifo(data_ty, name="in")  # Used to receive data from external memory
     of_out = ObjectFifo(data_ty, name="out")
 
     # Task for the core to perform
