@@ -97,6 +97,17 @@ def AIEArch: I32EnumAttr<"AIEArch", "AIE Architecture",
   let cppNamespace = "xilinx::AIE";
 }
 
+def AIETileType: I32EnumAttr<"AIETileType", "Type of AIE Tile",
+  [
+    I32EnumAttrCase<"CoreTile", 0>,
+    I32EnumAttrCase<"MemTile", 1>,
+    I32EnumAttrCase<"ShimNOCTile", 2>,
+    I32EnumAttrCase<"ShimPLTile", 3>,
+  ]> {
+
+  let cppNamespace = "xilinx::AIE";
+}
+
 def AIEDevice: I32EnumAttr<"AIEDevice", "AIE Device",
   [
     I32EnumAttrCase<"xcvc1902", 1>,
@@ -206,5 +217,12 @@ def PacketInfoAttr : AttrDef<AIE_Dialect, "PacketInfo", []> {
 def InitValuesArrayAttr
   : OptionalAttr<TypedArrayAttrBase<ElementsAttr, "array of ElementsAttr">>;
 
+//===----------------------------------------------------------------------===//
+// Generated AIE event enumerations
+//===----------------------------------------------------------------------===//
+
+include "AIEEvents.td.inc"
+include "AIEEventsAIE2.td.inc"
+include "AIEEventsAIE2P.td.inc"
 
 #endif // AIE_ATTRS

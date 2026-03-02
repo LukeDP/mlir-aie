@@ -4,15 +4,17 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-# (c) Copyright 2024 Advanced Micro Devices, Inc.
+# (c) Copyright 2024-2026 Advanced Micro Devices, Inc.
 
+import hashlib
 import numpy as np
 
 from .. import ir  # type: ignore
-from ..extras.dialects.ext.func import FuncOp  # type: ignore
-from ..helpers.dialects.ext.func import call
+from ..extras.dialects.func import FuncOp  # type: ignore
+from ..helpers.dialects.func import call
 from ..dialects.aie import external_func
 from .resolvable import Resolvable
+from .buffer import Buffer
 
 
 class BaseKernel(Resolvable):
@@ -25,23 +27,23 @@ class BaseKernel(Resolvable):
             name (str): The name of the function
             arg_types (list[type[np.ndarray] | np.dtype], optional): The type signature of the function. Defaults to [].
         """
+        if not name:
+            raise ValueError("The name of a kernel cannot be empty or null.")
         self._name = name
         self._arg_types = arg_types
         self._op: FuncOp | None = None
-
-    def resolve(
-        self,
-        loc: ir.Location | None = None,
-        ip: ir.InsertionPoint | None = None,
-    ) -> None:
-        """Resolve the kernel to a FuncOp. Must be implemented by subclasses."""
-        raise NotImplementedError("Subclasses must implement resolve()")
 
     def __call__(self, *args, **kwargs):
         """Call the kernel with the given arguments."""
         if not self._op:
             raise ValueError("Need to resolve kernel before it can be called")
-        call(self._op, args, **kwargs)
+        arg_ops = []
+        for a in args:
+            if isinstance(a, Buffer):
+                arg_ops.append(a.op)
+            else:
+                arg_ops.append(a)
+        call(self._op, arg_ops, **kwargs)
 
 
 class Kernel(BaseKernel):
@@ -75,7 +77,7 @@ class Kernel(BaseKernel):
             self._op = external_func(self._name, inputs=self._arg_types)
 
 
-class ExternalFunction(BaseKernel):
+class ExternalFunction(Kernel):
     _instances = set()
 
     def __init__(
@@ -87,6 +89,7 @@ class ExternalFunction(BaseKernel):
         arg_types: list[type[np.ndarray] | np.dtype] = [],
         include_dirs: list[str] = [],
         compile_flags: list[str] = [],
+        debug: bool = False,
     ) -> None:
         """An ExternalFunction is a C/C++ source file that gets compiled to an object file and eventually resolves to a FuncOp.
         If it is called, a CallOp will be generated.
@@ -99,16 +102,25 @@ class ExternalFunction(BaseKernel):
             arg_types (list[type[np.ndarray] | np.dtype], optional): The type signature of the function. Defaults to [].
             include_dirs (list[str], optional): Additional include directories. Defaults to [].
             compile_flags (list[str], optional): Additional compilation flags. Defaults to [].
+            debug (bool, optional): Enable debug logging. Defaults to True.
         """
-        super().__init__(name, arg_types)
+        if not object_file_name:
+            object_file_name = f"{name}.o"
+        super().__init__(name, object_file_name, arg_types)
+
         self._setup_source(source_file, source_string)
         self._include_dirs = include_dirs
         self._compile_flags = compile_flags
-        if object_file_name:
-            self._object_file_name = object_file_name
-        else:
-            self._object_file_name = f"{self._name}.o"
         self._compiled = False
+        self._arg_types = arg_types
+        self._op: FuncOp | None = None
+        self._debug = debug
+
+        if self._debug:
+            print(f"Initializing ExternalFunction: {name}")
+            print(f"Source file: {source_file}")
+            print(f"Include dirs: {include_dirs}")
+            print(f"Compile flags: {compile_flags}")
 
         # Track this instance for JIT compilation
         ExternalFunction._instances.add(self)
@@ -131,10 +143,6 @@ class ExternalFunction(BaseKernel):
     def __exit__(self, exc_type, exc_value, traceback):
         """Exit the context."""
         pass
-
-    @property
-    def bin_name(self) -> str:
-        return self._object_file_name
 
     def tile_size(self, arg_index: int = 0) -> int:
         """Get the tile size from the specified array argument type.
@@ -177,22 +185,42 @@ class ExternalFunction(BaseKernel):
         """Get the argument types of the ExternalFunction."""
         return self._arg_types.copy()
 
-    def resolve(
-        self,
-        loc: ir.Location | None = None,
-        ip: ir.InsertionPoint | None = None,
-    ) -> None:
-        if not self._op:
-            # Create the external function
-            self._op = external_func(self._name, inputs=self._arg_types)
+    def __call__(self, *args, **kwargs):
+        """Call the ExternalFunction with argument validation."""
+        if len(args) != len(self._arg_types):
+            raise ValueError(
+                f"ExternalFunction '{self._name}' expects {len(self._arg_types)} argument(s), "
+                f"but {len(args)} were provided."
+            )
+        for i, (arg, expected_ty) in enumerate(zip(args, self._arg_types)):
+            self._validate_arg(i, arg, expected_ty)
+        super().__call__(*args, **kwargs)
+
+    def _validate_arg(self, index: int, arg, expected_ty) -> None:
+        """Validate a single argument against its expected type."""
+        # Scalar types (np.int32, np.float32, etc.)
+        if isinstance(expected_ty, type) and issubclass(expected_ty, np.generic):
+            if not isinstance(arg, (int, float, np.integer, np.floating)):
+                raise ValueError(
+                    f"Argument {index}: expected scalar, got {type(arg).__name__}"
+                )
+            return
+
+        # Array types - check shape and dtype
+        if hasattr(expected_ty, "__args__") and hasattr(arg, "shape"):
+            expected_shape = expected_ty.__args__[0]
+            expected_dtype = expected_ty.__args__[1].__args__[0]
+            if arg.shape != expected_shape or arg.dtype != expected_dtype:
+                raise ValueError(
+                    f"Argument {index}: expected {expected_shape}/{expected_dtype}, "
+                    f"got {arg.shape}/{arg.dtype}"
+                )
 
     def __hash__(self):
         """
         Compute a hash for the ExternalFunction based on its properties.
         This allows ExternalFunction instances to be used in cache keys.
         """
-        import hashlib
-
         # Create a string representation of the function's key properties
         hash_parts = [
             self._name,
@@ -213,8 +241,3 @@ class ExternalFunction(BaseKernel):
         # Create hash from combined string
         combined = "|".join(hash_parts)
         return int(hashlib.sha256(combined.encode("utf-8")).hexdigest()[:8], 16)
-
-    def __call__(self, *args, **kwargs):
-        if not self._op:
-            raise ValueError("Need to resolve ExternalFunction before it can be called")
-        call(self._op, args, **kwargs)

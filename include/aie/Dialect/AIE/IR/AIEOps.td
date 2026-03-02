@@ -81,7 +81,7 @@ def AIE_DeviceOp: AIE_Op<"device", [
 
 def AIE_TileOp: AIE_Op<"tile", [
     Pure,
-    FlowEndPoint,
+    IsFlowEndPoint,
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index:$result)> {
@@ -111,11 +111,16 @@ def AIE_TileOp: AIE_Op<"tile", [
     int colIndex() { return getCol(); }
     int rowIndex() { return getRow(); }
     TileID getTileID() { return {getCol(), getRow()}; }
+    AIETileType getTileType();
+    bool isCoreTile() { return getTileType() == AIETileType::CoreTile; }
     bool isShimTile() { return getRow() == 0; }
-    bool isMemTile();
-    bool isShimNOCTile();
-    bool isShimPLTile();
-    bool isShimNOCorPLTile();
+    bool isMemTile() { return getTileType() == AIETileType::MemTile; }
+    bool isShimNOCTile() { return getTileType() == AIETileType::ShimNOCTile; }
+    bool isShimPLTile() { return getTileType() == AIETileType::ShimPLTile; }
+    bool isShimNOCorPLTile() { 
+      AIETileType t = getTileType();
+      return t == AIETileType::ShimNOCTile || t == AIETileType::ShimPLTile; 
+    }
     bool isInternalMemWest() { return ((rowIndex() % 2) == 0); };
 
     MemOp getMemOp() {
@@ -182,7 +187,7 @@ def AIE_EndOp: AIE_Op<"end", [Terminator]> {
 }
 
 def AIE_SwitchboxOp: AIE_Op<"switchbox", [
-    Interconnect, TileElement,
+    Interconnect,
     SingleBlockImplicitTerminator<"EndOp">,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index:$result)> {
@@ -207,12 +212,12 @@ def AIE_SwitchboxOp: AIE_Op<"switchbox", [
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
+    TileOp getTileOp();
     size_t getNumSourceConnections(WireBundle bundle);
     size_t getNumDestConnections(WireBundle bundle);
-    int colIndex();
-    int rowIndex();
-    TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<SwitchboxOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<SwitchboxOp>::getAsmResultNames(setNameFn);
+    }
   }];
 }
 
@@ -242,7 +247,7 @@ def AIE_ShimSwitchboxOp: AIE_Op<"shim_switchbox", [
 }
 
 def AIE_ShimMuxOp: AIE_Op<"shim_mux", [
-    Interconnect, TileElement, IsShimTile,
+    Interconnect, IsShimTile,
     SingleBlockImplicitTerminator<"EndOp">,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index)> {
@@ -268,17 +273,17 @@ def AIE_ShimMuxOp: AIE_Op<"shim_mux", [
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
-    int colIndex();
-    int rowIndex();
+    TileOp getTileOp();
     size_t getNumSourceConnections(WireBundle bundle);
     size_t getNumDestConnections(WireBundle bundle);
-    TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<ShimMuxOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<ShimMuxOp>::getAsmResultNames(setNameFn);
+    }
   }];
 }
 
 def AIE_ShimDMAOp: AIE_Op<"shim_dma", [
-    FlowEndPoint, TileElement, HasValidBDs,
+    IsFlowEndPoint, TileElement, HasValidBDs,
     HasValidDMAChannels, IsShimNOCTile,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index)> {
@@ -311,17 +316,16 @@ def AIE_ShimDMAOp: AIE_Op<"shim_dma", [
   let regions = (region AnyRegion:$body);
   let assemblyFormat = [{ `(` $tile `)` regions attr-dict }];
   let hasVerifier = 1;
-
   let extraClassDeclaration = [{
-    int colIndex();
-    int rowIndex();
     TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<ShimDMAOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<ShimDMAOp>::getAsmResultNames(setNameFn);
+    }
   }];
 }
 
 def AIE_CoreOp: AIE_Op<"core", [
-    FlowEndPoint, IsCoreTile, TileElement,
+    IsFlowEndPoint, IsCoreTile, TileElement,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index)> {
   let arguments = (
@@ -375,12 +379,12 @@ def AIE_CoreOp: AIE_Op<"core", [
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
-    int colIndex();
-    int rowIndex();
+    TileOp getTileOp();
     bool isMemWest() { return ((rowIndex() % 2) == 0); };
     bool isEmpty();
-    TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<CoreOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<CoreOp>::getAsmResultNames(setNameFn);
+    }
   }];
 
   let builders = [
@@ -913,7 +917,7 @@ def AIE_DMABDOp: AIE_Op<"dma_bd", []> {
   }];
 
   let arguments = (
-    ins AnyMemRef:$buffer,
+    ins AnyRankedOrUnrankedMemRef:$buffer,
         // in multiples of element width (not bytes)
         DefaultValuedAttr<AIEI32Attr, "0">:$offset,
         // in multiples of element width (not bytes)
@@ -935,13 +939,16 @@ def AIE_DMABDOp: AIE_Op<"dma_bd", []> {
     BufferOp getBufferOp();
     int32_t getBufferElementTypeWidthInBytes() {
       mlir::DataLayout dataLayout = mlir::DataLayout::closest(*this);
-      return dataLayout.getTypeSize(getBuffer().getType().getElementType());
+      auto bufferType = llvm::cast<mlir::BaseMemRefType>(getBuffer().getType());
+      return dataLayout.getTypeSize(bufferType.getElementType());
     }
     uint32_t getLenInBytes() {
       if (std::optional<uint32_t> len = getLen(); len.has_value())
         return len.value() * getBufferElementTypeWidthInBytes();
-      else
-        return getBuffer().getType().getNumElements() * getBufferElementTypeWidthInBytes();
+      auto memrefType = llvm::dyn_cast<mlir::MemRefType>(getBuffer().getType());
+      if (!memrefType)
+        return 0; // Unranked memref without explicit len
+      return memrefType.getNumElements() * getBufferElementTypeWidthInBytes();
     }
     int32_t getOffsetInBytes() { return getOffset() * getBufferElementTypeWidthInBytes(); }
   }];
@@ -1078,8 +1085,7 @@ def AIE_DMAOp: AIE_Op<"dma", [
   let hasVerifier = 1;
 
   let extraClassDefinition = [{
-    void $cppClass::getAsmResultNames(
-        llvm::function_ref<void(mlir::Value, llvm::StringRef)> setNameFn) {
+    void $cppClass::getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
       if (auto name = getOperation()->getAttrOfType<mlir::StringAttr>(
               mlir::SymbolTable::getSymbolAttrName()))
         setNameFn(getResult(), name.str());
@@ -1088,7 +1094,7 @@ def AIE_DMAOp: AIE_Op<"dma", [
 }
 
 def AIE_MemOp: AIE_Op<"mem", [
-    TileElement, FlowEndPoint,
+    TileElement, IsFlowEndPoint,
     IsCoreTile, HasValidBDs, HasValidDMAChannels,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index)> {
@@ -1118,17 +1124,16 @@ def AIE_MemOp: AIE_Op<"mem", [
   let regions = (region AnyRegion:$body);
   let assemblyFormat = [{ `(` $tile `)` regions attr-dict }];
   let hasVerifier = 1;
-
   let extraClassDeclaration = [{
-    int colIndex();
-    int rowIndex();
     TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<MemOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<MemOp>::getAsmResultNames(setNameFn);
+    }
   }];
 }
 
 def AIE_MemTileDMAOp: AIE_Op<"memtile_dma", [
-    TileElement, FlowEndPoint,
+    TileElement, IsFlowEndPoint,
     IsMemTile, HasValidBDs, HasValidDMAChannels,
     DeclareOpInterfaceMethods<InferTypeOpInterface>
   ]>, Results<(outs Index)> {
@@ -1162,12 +1167,11 @@ def AIE_MemTileDMAOp: AIE_Op<"memtile_dma", [
   let regions = (region AnyRegion:$body);
   let assemblyFormat = [{ `(` $tile `)` regions attr-dict }];
   let hasVerifier = 1;
-
   let extraClassDeclaration = [{
-    int colIndex();
-    int rowIndex();
     TileOp getTileOp();
-    using ::xilinx::AIE::TileElement::Trait<MemTileDMAOp>::getAsmResultNames;
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      TileElement::Trait<MemTileDMAOp>::getAsmResultNames(setNameFn);
+    }
   }];
 }
 
@@ -1251,19 +1255,17 @@ def AIE_LockOp: AIE_Op<"lock", [
       return getLockID().value();
     }
 
-    int colIndex();
-    int rowIndex();
     TileOp getTileOp();
-    void getAsmResultNames(
-        llvm::function_ref<void(mlir::Value, llvm::StringRef)> setNameFn) {
+
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
       if (hasName())
         setNameFn(getResult(), name().str());
       else {
         std::string nameWithoutDialect =
-            getOperationName().str().substr(getOperationName().find('.') + 1);
+            getOperation()->getName().stripDialect().str();
         setNameFn(getResult(), nameWithoutDialect + "_" +
-              std::to_string(getTileID().col) + "_" +
-              std::to_string(getTileID().row));
+              std::to_string(colIndex()) + "_" +
+              std::to_string(rowIndex()));
       }
     }
   }];
@@ -1382,19 +1384,18 @@ def AIE_BufferOp: AIE_Op<"buffer", [
       llvm::report_fatal_error("couldn't get name");
     }
 
+    TileOp getTileOp();
     // Return the number of bytes that need to be allocated for this buffer.
     int64_t getAllocationSize();
-    TileOp getTileOp();
-    void getAsmResultNames(
-        llvm::function_ref<void(mlir::Value, llvm::StringRef)> setNameFn) {
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
       if (hasName())
         setNameFn(getResult(), name().str());
       else {
         std::string nameWithoutDialect =
-            getOperationName().str().substr(getOperationName().find('.') + 1);
+            getOperation()->getName().stripDialect().str();
         setNameFn(getResult(), nameWithoutDialect + "_" +
-              std::to_string(getTileID().col) + "_" +
-              std::to_string(getTileID().row));
+              std::to_string(colIndex()) + "_" +
+              std::to_string(rowIndex()));
       }
     }
   }];
@@ -1446,8 +1447,7 @@ def AIE_ExternalBufferOp: AIE_Op<"external_buffer", [
   }];
 
   let extraClassDefinition = [{
-    void $cppClass::getAsmResultNames(
-        llvm::function_ref<void(mlir::Value, llvm::StringRef)> setNameFn) {
+    void $cppClass::getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
       if (hasName())
         setNameFn(getResult(), name().str());
     }
@@ -1592,11 +1592,10 @@ def AIE_ShimDMAAllocationOp : AIE_Op<"shim_dma_allocation", [HasParent<"DeviceOp
   let description = [{
     This op exists for cases where shim_dma configuration is performed outside of MLIR-AIE
     and hence there is no appropriate dma_start operation to indicate which channel is being
-    used and on which column the shim_dma is.
+    used and on which shim tile the shim_dma is.
 
     It contains attributes for the sym_name of an operation which generated the shim DMA,
-    for the DMAChannelDir and channel index, and for the column of the shim tile to which
-    the originating operation was mapped.
+    for the DMAChannelDir and channel index, and a reference to the shim tile.
 
     Example:
     ```
@@ -1604,17 +1603,17 @@ def AIE_ShimDMAAllocationOp : AIE_Op<"shim_dma_allocation", [HasParent<"DeviceOp
       %tile02 = aie.tile(0, 2)
       aie.objectfifo @of_in_0 (%tile00, { %tile02 }, 2) : !aie.objectfifo<memref<64xi16>>
     ```
-    could produce the following allocation info (channel direction MM2S, channel index 1, and shim column 0):
+    could produce the following allocation info (channel direction MM2S, channel index 1, on tile %tile00):
     ```
-      aie.shim_dma_allocation @of_in_0 (MM2S, 1, 0)
+      aie.shim_dma_allocation @of_in_0 (%tile00, MM2S, 1)
     ```
   }];
 
   let arguments = (
     ins SymbolNameAttr:$sym_name,
+        Index:$tile,
         DMAChannelDir:$channel_dir,
         AIEI64Attr:$channel_index,
-        AIEI64Attr:$col,
         // If this is set we are using the PLIO in this ShimTile
         DefaultValuedAttr<BoolAttr, "false">:$plio,
         OptionalAttr<PacketInfoAttr>:$packet
@@ -1623,13 +1622,15 @@ def AIE_ShimDMAAllocationOp : AIE_Op<"shim_dma_allocation", [HasParent<"DeviceOp
   let results = (outs);
 
   let assemblyFormat = [{
-    $sym_name `(` $channel_dir `,` $channel_index `,` $col (`,` $packet^)? `)` attr-dict
+    $sym_name `(` $tile `,` $channel_dir `,` $channel_index (`,` $packet^)? `)` attr-dict
   }];
+  
+  let hasVerifier = 1;
 
   let extraClassDeclaration = [{
+    TileOp getTileOp();
     static ::xilinx::AIE::ShimDMAAllocationOp getForSymbol(::xilinx::AIE::DeviceOp device, ::llvm::StringRef symbol);
   }];
-
 }
 
 def AIE_ObjectFifoCreateOp: AIE_Op<"objectfifo", [HasParent<"DeviceOp">, Symbol]> {
@@ -1708,6 +1709,16 @@ def AIE_ObjectFifoCreateOp: AIE_Op<"objectfifo", [HasParent<"DeviceOp">, Symbol]
                            }, 2 : i32
                           ) : !aie.objectfifo<memref<256xi32>>
     ```
+    
+    The behavior of the objectFifo is further controlled by optional parameters.
+    The `repeat_count` parameter specifies the number of times each individual 
+    object is repeated during transfer. When `repeat_count == 1`, each object 
+    is transferred once.
+
+    The `iter_count` parameter specifies the number of iterations of 
+    the buffer descriptor chain generated at the lower level. The total number 
+    of objects transferred is calculated as `iter_count * elemNumber * repeat_count`.
+    When `repeat_count == 1`, this simplifies to `iter_count * elemNumber`.
   }];
 
   let arguments = (
@@ -1725,8 +1736,14 @@ def AIE_ObjectFifoCreateOp: AIE_Op<"objectfifo", [HasParent<"DeviceOp">, Symbol]
         DefaultValuedAttr<BoolAttr, "false">:$disable_synchronization,
         // repeat_count==1 means "do it once"
         OptionalAttr<ConfinedAttr<AIEI32Attr, [IntMinValue<1>]>>:$repeat_count,
+        // aie_stream==0 means enable aie stream port on producer tile
+        // aie_stream==1 means enable aie stream port on consumer tile
+        // aie_stream==2 means enable aie stream ports on producer and consumer tiles
+        OptionalAttr<ConfinedAttr<AIEI32Attr, [IntMinValue<0>, IntMaxValue<2>]>>:$aie_stream,
+        OptionalAttr<ConfinedAttr<AIEI32Attr, [IntMinValue<0>, IntMaxValue<1>]>>:$aie_stream_port,
         InitValuesArrayAttr:$initValues,
-        OptionalAttr<BDPadLayoutArrayAttr>:$padDimensions
+        OptionalAttr<BDPadLayoutArrayAttr>:$padDimensions,
+        OptionalAttr<AIEI32Attr>:$iter_count
   );
 
   let assemblyFormat = [{
@@ -1760,6 +1777,8 @@ def AIE_ObjectFifoCreateOp: AIE_Op<"objectfifo", [HasParent<"DeviceOp">, Symbol]
       return getOperation()->getAttrOfType<mlir::StringAttr>(
           mlir::SymbolTable::getSymbolAttrName());
     }
+
+    AIE::BDDimLayoutArrayAttr getDimensionsFromStream(mlir::Value consumerTile);
   }];
 
   let builders = [
@@ -1790,7 +1809,7 @@ def AIE_ObjectFifoAllocateOp: AIE_Op<"objectfifo.allocate", [HasParent<"DeviceOp
 
     In the following example the objects of @of4 will be allocated on %tile14:
     ```
-      aie.objectfifo @of4 (%tile13, {%tile14}, 2 : i32) : !aie.objectfifo<memref<256xi32>>
+      aie.objectfifo @of4 (%tile13, { %tile14 }, 2 : i32) : !aie.objectfifo<memref<256xi32>>
       aie.objectfifo.allocate @of4 (%tile14)
     ```
   }];
@@ -1836,6 +1855,10 @@ def AIE_ObjectFifoLinkOp: AIE_Op<"objectfifo.link", [HasParent<"DeviceOp">]> {
     To achieve a distribute pattern from the link tile, there should be multiple output `objectFifos` in the OjbectFifoLinkOp. In this case,
     parts will be taken out of the input `objectFifo`'s buffers based on dst_offsets input array.
     The join pattern is the exact inverse of the distribute one and uses the src_offsets input array instead.
+
+    In the cases of the join and distribute patterns, the link has some special restrictions on `toStream` and `fromStream` dimensions:
+    - join: the `toStream` dimensions of the output `objectFifo` cannot access an index beyond the length of the minimum transfer length in the src_offsets.
+    - distribute: the `fromStream` dimensions of the input `objectFifo` cannot access an index beyond the length of the minimum transfer length in dst_offsets.
   }];
 
   let arguments = (
@@ -1896,13 +1919,9 @@ def AIE_ObjectFifoRegisterExternalBuffersOp: AIE_Op<"objectfifo.register_externa
     attr-dict $objFifo_name `(` $tile `,` `{` $externalBuffers `}` `)` `:` `(` type($externalBuffers) `)`
   }];
 
-  let hasVerifier = 1;
-
   let extraClassDeclaration = [{
     TileOp getTileOp();
     ObjectFifoCreateOp getObjectFifo();
-    // No results so just use default impl.
-    using ::mlir::OpAsmOpInterface::Trait<ObjectFifoRegisterExternalBuffersOp>::getAsmResultNames;
   }];
 }
 
@@ -2104,6 +2123,37 @@ def AIE_BDChainOp: AIE_Op<"bd_chain", [Symbol, SkipAccessibilityCheckTrait]> {
   }];
   let hasCustomAssemblyFormat = 1;
 
+}
+
+def AIE_RuntimeSequenceOp : AIE_Op<"runtime_sequence", [
+  Symbol,
+  NoTerminator, 
+  HasParent<"DeviceOp">, 
+]> {
+  let summary = "Program the configuration co-processor of the AI Engine array";
+  let description = [{
+    Instructions in this operation allow for runtime (re-)configuration of the AI Engine array, such as configuring data movement buffer descriptors.
+    These instructions will execute on the configuration co-processor of the AI Engine array.
+
+    Typically, these instructions include configuring the data transfers between host and AIE array on the shims.
+    The input arguments are arguments passed in from the host at kernel invocation time. This may include buffers on the host.
+  }];
+  let arguments = (
+    ins DefaultValuedAttr<SymbolNameAttr, "getDefaultRuntimeSequenceName()">:$sym_name
+  );
+  let regions = (region
+    AnyRegion:$body
+  );
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    static llvm::StringRef getDefaultRuntimeSequenceName() { return "sequence"; }
+    static RuntimeSequenceOp getForSymbolInDevice(DeviceOp module, llvm::StringRef symbol);
+    static RuntimeSequenceOp getForSymbolInDeviceOrError(DeviceOp module, llvm::StringRef symbol);
+    llvm::LogicalResult verifyBeforeMaterialization();
+  }];
+  let extraClassDefinition = [{
+  }];
 }
 
 #endif // AIE_OPS

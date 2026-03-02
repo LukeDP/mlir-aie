@@ -44,44 +44,71 @@ namespace {
 //===----------------------------------------------------------------------===//
 
 /// Check if a value depends on the given loop induction variable
-static bool dependsOnLoopIVForHoist(Value val, Value loopIV) {
-  if (val == loopIV)
-    return true;
+/// Uses a cache to avoid exponential recursion on complex dependency chains
+static bool dependsOnLoopIVForHoist(Value val, Value loopIV,
+                                    DenseMap<Value, bool> &cache) {
+  // Check cache - return cached result if already computed
+  auto it = cache.find(val);
+  if (it != cache.end())
+    return it->second;
 
-  // Check for operations that use the loop IV in their operands
-  if (auto defOp = val.getDefiningOp()) {
+  // Mark as being computed (assume false initially to handle recursion)
+  // This prevents infinite recursion in case of cycles (though SSA shouldn't
+  // have cycles)
+  cache[val] = false;
+
+  bool result = false;
+  if (val == loopIV) {
+    result = true;
+  } else if (auto defOp = val.getDefiningOp()) {
+    // Check for operations that use the loop IV in their operands
     for (Value operand : defOp->getOperands()) {
-      if (dependsOnLoopIVForHoist(operand, loopIV))
-        return true;
+      if (dependsOnLoopIVForHoist(operand, loopIV, cache)) {
+        result = true;
+        break;
+      }
     }
   }
 
-  return false;
+  // Store the computed result in cache
+  cache[val] = result;
+  return result;
+}
+
+/// Wrapper for dependsOnLoopIVForHoist that manages the cache
+static bool dependsOnLoopIVForHoist(Value val, Value loopIV) {
+  DenseMap<Value, bool> cache;
+  return dependsOnLoopIVForHoist(val, loopIV, cache);
 }
 
 /// Clone an operation and its operands (recursively) that don't depend on the
-/// loop IV
+/// loop IV. Uses memoization via the mapping to avoid exponential recursion.
 static Value cloneOpAndOperands(Operation *op, Value loopIV, OpBuilder &builder,
                                 IRMapping &mapping) {
   // Only handle operations with exactly one result
   if (op->getNumResults() != 1)
     return Value();
+
   // If we've already cloned this operation, return the mapped result
+  // This is critical for avoiding exponential recursion
   if (mapping.contains(op->getResult(0)))
     return mapping.lookup(op->getResult(0));
+
+  // Check if this operation depends on the loop IV before trying to clone
+  if (dependsOnLoopIVForHoist(op->getResult(0), loopIV))
+    return Value();
 
   // Clone operands recursively
   SmallVector<Value> newOperands;
   for (Value operand : op->getOperands()) {
     if (auto defOp = operand.getDefiningOp()) {
-      if (!dependsOnLoopIVForHoist(operand, loopIV)) {
-        Value clonedOperand =
-            cloneOpAndOperands(defOp, loopIV, builder, mapping);
-        newOperands.push_back(clonedOperand);
-      } else {
-        return Value();
-      }
+      Value clonedOperand = cloneOpAndOperands(defOp, loopIV, builder, mapping);
+      if (!clonedOperand)
+        return Value(); // Failed to clone an operand
+      newOperands.push_back(clonedOperand);
     } else {
+      // Operand is a block argument or constant (guaranteed not to be the
+      // loop IV due to the dependency check at line 91)
       newOperands.push_back(operand);
     }
   }
@@ -90,7 +117,7 @@ static Value cloneOpAndOperands(Operation *op, Value loopIV, OpBuilder &builder,
   Operation *clonedOp = builder.clone(*op);
   clonedOp->setOperands(newOperands);
 
-  // Map the result
+  // Map the result to enable memoization
   mapping.map(op->getResult(0), clonedOp->getResult(0));
   return clonedOp->getResult(0);
 }
@@ -246,8 +273,8 @@ struct HoistVectorTransferPointersPattern
         }
         reassociation.push_back(allDims);
 
-        flatMemref = rewriter.create<memref::CollapseShapeOp>(
-            loc, flatMemrefType, info.base, reassociation);
+        flatMemref = memref::CollapseShapeOp::create(
+            rewriter, loc, flatMemrefType, info.base, reassociation);
       }
       flatMemrefs.push_back(flatMemref);
 
@@ -277,8 +304,8 @@ struct HoistVectorTransferPointersPattern
               else
                 mappedOperands.push_back(operand);
             }
-            Value evaluatedIdx = rewriter.create<affine::AffineApplyOp>(
-                loc, affineOp.getAffineMap(), mappedOperands);
+            Value evaluatedIdx = affine::AffineApplyOp::create(
+                rewriter, loc, affineOp.getAffineMap(), mappedOperands);
             evaluatedIndices.push_back(evaluatedIdx);
           } else {
             // Direct IV usage - just use lower bound
@@ -299,8 +326,8 @@ struct HoistVectorTransferPointersPattern
         }
       }
 
-      Value basePointer = rewriter.create<affine::AffineApplyOp>(
-          loc, linearMap, evaluatedIndices);
+      Value basePointer = affine::AffineApplyOp::create(
+          rewriter, loc, linearMap, evaluatedIndices);
 
       newInitArgs.push_back(basePointer);
     }
@@ -310,7 +337,16 @@ struct HoistVectorTransferPointersPattern
     if (newInitArgs.empty()) {
       // Check if any transfer needs flattening (avoid infinite rewrites)
       bool needsFlattening = false;
+      bool hasProcessableTransfers = false;
       for (const auto &info : transferOps) {
+        // Skip if base is defined inside the loop (e.g., a subview)
+        // We can't hoist these
+        if (info.base.getDefiningOp() &&
+            forOp->isProperAncestor(info.base.getDefiningOp()))
+          continue;
+
+        hasProcessableTransfers = true;
+
         // Check if this transfer has already been flattened
         // (flattened transfers use 1D identity map)
         if (auto readOp = dyn_cast<vector::TransferReadOp>(info.op)) {
@@ -322,7 +358,9 @@ struct HoistVectorTransferPointersPattern
         }
       }
 
-      if (!needsFlattening)
+      // If there are no processable transfers (all bases defined in loop)
+      // or nothing needs flattening, bail out
+      if (!hasProcessableTransfers || !needsFlattening)
         return failure();
 
       // First, create flattened memrefs outside the loop for bases not defined
@@ -370,8 +408,8 @@ struct HoistVectorTransferPointersPattern
             allDims.push_back(i);
           }
           reassociation.push_back(allDims);
-          flatMemref = rewriter.create<memref::CollapseShapeOp>(
-              loc, flatMemrefType, info.base, reassociation);
+          flatMemref = memref::CollapseShapeOp::create(
+              rewriter, loc, flatMemrefType, info.base, reassociation);
         }
         baseFlatMemrefs[info.base] = flatMemref;
       }
@@ -409,8 +447,8 @@ struct HoistVectorTransferPointersPattern
         }
         auto linearMap = AffineMap::get(rank, 0, linearExpr);
 
-        Value currentPointer = rewriter.create<affine::AffineApplyOp>(
-            loc, linearMap, info.indices);
+        Value currentPointer = affine::AffineApplyOp::create(
+            rewriter, loc, linearMap, info.indices);
 
         // Transform the transfer operation
         AffineMap identityMap1D = AffineMap::get(
@@ -418,17 +456,18 @@ struct HoistVectorTransferPointersPattern
         auto inBoundsAttr = rewriter.getBoolArrayAttr({true});
 
         if (auto readOp = dyn_cast<vector::TransferReadOp>(info.op)) {
-          Value flatRead = rewriter.create<vector::TransferReadOp>(
-              loc, flatVectorType, flatMemref, ValueRange{currentPointer},
-              AffineMapAttr::get(identityMap1D), readOp.getPadding(),
+          Value flatRead = vector::TransferReadOp::create(
+              rewriter, loc, flatVectorType, flatMemref,
+              ValueRange{currentPointer}, AffineMapAttr::get(identityMap1D),
+              readOp.getPadding(),
               /*mask=*/Value(), inBoundsAttr);
-          Value shapedRead = rewriter.create<vector::ShapeCastOp>(
-              loc, info.vectorType, flatRead);
+          Value shapedRead = vector::ShapeCastOp::create(
+              rewriter, loc, info.vectorType, flatRead);
           rewriter.replaceOp(readOp, shapedRead);
           madeChanges = true;
         } else if (auto writeOp = dyn_cast<vector::TransferWriteOp>(info.op)) {
-          Value flatValue = rewriter.create<vector::ShapeCastOp>(
-              loc, flatVectorType, writeOp.getVector());
+          Value flatValue = vector::ShapeCastOp::create(
+              rewriter, loc, flatVectorType, writeOp.getVector());
           rewriter.replaceOpWithNewOp<vector::TransferWriteOp>(
               writeOp, flatValue, flatMemref, ValueRange{currentPointer},
               AffineMapAttr::get(identityMap1D), /*mask=*/Value(),
@@ -469,16 +508,16 @@ struct HoistVectorTransferPointersPattern
         auto inBoundsAttr = b.getBoolArrayAttr({true});
 
         if (auto readOp = dyn_cast<vector::TransferReadOp>(info.op)) {
-          Value flatRead = b.create<vector::TransferReadOp>(
-              loc, flatVectorType, flatMemref, ValueRange{ptrIterArg},
+          Value flatRead = vector::TransferReadOp::create(
+              b, loc, flatVectorType, flatMemref, ValueRange{ptrIterArg},
               AffineMapAttr::get(identityMap1D), readOp.getPadding(),
               /*mask=*/Value(), inBoundsAttr);
           Value shapedRead =
-              b.create<vector::ShapeCastOp>(loc, info.vectorType, flatRead);
+              vector::ShapeCastOp::create(b, loc, info.vectorType, flatRead);
           rewriter.replaceOp(readOp, shapedRead);
         } else if (auto writeOp = dyn_cast<vector::TransferWriteOp>(info.op)) {
-          Value flatValue = b.create<vector::ShapeCastOp>(loc, flatVectorType,
-                                                          writeOp.getVector());
+          Value flatValue = vector::ShapeCastOp::create(b, loc, flatVectorType,
+                                                        writeOp.getVector());
           rewriter.replaceOpWithNewOp<vector::TransferWriteOp>(
               writeOp, flatValue, flatMemref, ValueRange{ptrIterArg},
               AffineMapAttr::get(identityMap1D), /*mask=*/Value(),
@@ -487,9 +526,9 @@ struct HoistVectorTransferPointersPattern
 
         // Compute next pointer value: current_ptr + constant_stride
         Value strideConst =
-            b.create<arith::ConstantIndexOp>(yieldLoc, info.constantStride);
+            arith::ConstantIndexOp::create(b, yieldLoc, info.constantStride);
         Value nextPtr =
-            b.create<arith::AddIOp>(yieldLoc, ptrIterArg, strideConst);
+            arith::AddIOp::create(b, yieldLoc, ptrIterArg, strideConst);
         yieldValues.push_back(nextPtr);
 
         iterArgIdx++;

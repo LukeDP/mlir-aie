@@ -14,6 +14,7 @@
 #include "aie/Dialect/AIE/IR/AIEDialect.h"
 #include "aie/Dialect/AIEVec/IR/AIEVecDialect.h"
 #include "aie/Dialect/AIEX/IR/AIEXDialect.h"
+#include "aie/Dialect/AIEX/Transforms/AIEXPasses.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -236,7 +237,13 @@ void registerAIETranslations() {
           shimJSON["channelDir"] = attrToJSON(channelDir);
           auto channelIndex = shimDMAMeta.getChannelIndexAttr();
           shimJSON["channelIndex"] = attrToJSON(channelIndex);
-          auto col = shimDMAMeta.getColAttr();
+          AIE::TileOp tile = shimDMAMeta.getTileOp();
+          if (!tile) {
+            shimDMAMeta.emitError(
+                "shim DMA allocation must reference a valid TileOp");
+            return failure();
+          }
+          auto col = tile.getColAttr();
           shimJSON["col"] = attrToJSON(col);
           moduleJSON[shimDMAMeta.getSymName()] =
               llvm::json::Value(std::move(shimJSON));
@@ -392,6 +399,14 @@ void registerAIETranslations() {
             output << llvm::format("%08X\n", w);
         }
         return success();
+      },
+      registerDialects);
+
+  // Translate cert dialect operations to assembly
+  TranslateFromMLIRRegistration registrationCertToAsm(
+      "aie-cert-to-asm", "Translate cert operations to assembly",
+      [](ModuleOp module, raw_ostream &output) {
+        return AIETranslateToUcDma(module, output);
       },
       registerDialects);
 }

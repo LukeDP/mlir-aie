@@ -250,9 +250,9 @@ static bool skippedOp(Operation *op, CppEmitter &emitter,
   // Ops that must be skipped:
   bool skip =
       TypeSwitch<Operation *, bool>(op)
-          // skip op 1 : all dim op and assume_alignement op
-          .Case<memref::DimOp, memref::AssumeAlignmentOp>(
-              [](auto op) { return true; })
+          // skip op 1 : all dim op, assume_alignment op, alloc and dealloc ops
+          .Case<memref::DimOp, memref::AssumeAlignmentOp, memref::AllocOp,
+                memref::DeallocOp>([](auto op) { return true; })
           // skip op 2 : some aievec::srs for float types
           .Case<aievec::SRSOp>([&](auto srsOp) {
             // Get the datatype of the source accumulator and result vector
@@ -2124,10 +2124,13 @@ static LogicalResult printOperation(CppEmitter &emitter, aievec::SelOp selOp) {
 
   raw_indented_ostream &os = emitter.ostream();
 
+  // Chess sel(a, b, mask): bit=0 selects a, bit=1 selects b.
+  // aievec.sel(lhs, rhs, mask): bit=0 selects lhs, bit=1 selects rhs.
+  // Pass lhs as first arg and rhs as second to preserve semantics.
   os << "sel(";
-  os << emitter.getOrCreateName(rhs);
-  os << ", ";
   os << emitter.getOrCreateName(lhs);
+  os << ", ";
+  os << emitter.getOrCreateName(rhs);
   os << ", ";
   os << emitter.getOrCreateName(sel);
   os << ")";

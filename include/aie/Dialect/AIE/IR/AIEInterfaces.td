@@ -44,48 +44,9 @@ def IsShimTile : PredOpTrait<"op exists in a shim tile", Or<[PredIsShimNOCTile, 
 def IsShimNOCTile : PredOpTrait<"op exists in a shim tile with NOC connection", PredIsShimNOCTile>;
 def IsShimPLTile : PredOpTrait<"op exists in a shim tile with PL interface", PredIsShimPLTile>;
 
-def FlowEndPoint : OpInterface<"FlowEndPoint"> {
-  let description = [{
-    Interface for operations that have interconnect-like properties,
-    enabling them to host flows for routing.
-  }];
-  let cppNamespace = "::xilinx::AIE";
-  let methods = [
-    InterfaceMethod<[{}],
-      "int", "colIndex", (ins )
-    >,
-    InterfaceMethod<[{}],
-      "int", "rowIndex", (ins )
-    >
-  ];
+def IsFlowEndPoint : NativeOpTrait<"IsFlowEndPoint"> {
+  string cppNamespace = "::xilinx::AIE";
 }
-
-def Interconnect : OpInterface<"Interconnect"> {
-  let description = [{
-    Interface for operations that have interconnect-like properties,
-    enabling them to host flows for routing.
-  }];
-  let cppNamespace = "::xilinx::AIE";
-
-  let methods = [
-    InterfaceMethod<[{}],
-      "mlir::Region &", "getConnections", (ins )
-    >,
-    InterfaceMethod<[{}],
-      "int", "colIndex", (ins )
-    >,
-    InterfaceMethod<[{}],
-      "int", "rowIndex", (ins )
-    >,
-    InterfaceMethod<[{}],
-      "size_t", "getNumSourceConnections", (ins "WireBundle":$bundle)
-    >,
-    InterfaceMethod<[{}],
-      "size_t", "getNumDestConnections", (ins "WireBundle":$bundle)
-    >
-  ];
-}
-
 
 def TileElement : OpInterface<"TileElement", [
     DeclareOpInterfaceMethods<OpAsmOpInterface>,
@@ -95,28 +56,57 @@ def TileElement : OpInterface<"TileElement", [
   }];
   let cppNamespace = "::xilinx::AIE";
   let methods = [
-    InterfaceMethod<[{
-        Return the location of the Tile where the element is located.
-      }],
-      "xilinx::AIE::TileID", "getTileID", (ins ),
-      /*methodBody=*/[{}],
-      /*defaultImpl=*/[{
-        ConcreteOp op = llvm::cast<ConcreteOp>(this->getOperation());
-        return op.getTileOp().getTileID();
+    InterfaceMethod<[{Return the tile operand value.}],
+      "mlir::Value", "getTile", (ins)
+    >,
+    InterfaceMethod<[{Return the column index of this tile element.}],
+      "int", "colIndex", (ins), [{}], [{
+        return $_op.getTileOp().getCol();
       }]
     >,
+    InterfaceMethod<[{Return the row index of this tile element.}],
+      "int", "rowIndex", (ins), [{}], [{
+        return $_op.getTileOp().getRow();
+      }]
+    >,
+    InterfaceMethod<[{Return the TileID of this tile element.}],
+      "TileID", "getTileID", (ins), [{}], [{
+        return TileID{$_op.colIndex(), $_op.rowIndex()};
+      }]
+    >
   ];
+
+  let extraClassDeclaration = [{
+    TileOp getTileOp();
+  }];
+
   let extraTraitClassDeclaration = [{
-    void getAsmResultNames(
-        llvm::function_ref<void(mlir::Value, llvm::StringRef)> setNameFn) {
-      ConcreteOp op = llvm::cast<ConcreteOp>(this->getOperation());
-      std::string nameWithoutDialect =
-          op.getOperationName().str().substr(op.getOperationName().find('.') + 1);
-      setNameFn(op.getResult(), nameWithoutDialect + "_" +
-                                    std::to_string(getTileID().col) + "_" +
-                                    std::to_string(getTileID().row));
+    void getAsmResultNames(::mlir::OpAsmSetValueNameFn setNameFn) {
+      llvm::StringRef opName = $_op.getOperation()->getName().stripDialect();
+      std::string name = (opName + "_" + llvm::Twine($_op.colIndex()) + "_" +
+                          llvm::Twine($_op.rowIndex())).str();
+      setNameFn($_op.getResult(), name);
     }
   }];
+}
+
+def Interconnect : OpInterface<"Interconnect", [TileElement]> {
+  let description = [{
+    Interface for operations that have interconnect-like properties,
+    enabling them to host flows for routing.
+  }];
+  let cppNamespace = "::xilinx::AIE";
+  let methods = [
+    InterfaceMethod<[{}],
+      "mlir::Region &", "getConnections", (ins )
+    >,
+    InterfaceMethod<[{}],
+      "size_t", "getNumSourceConnections", (ins "WireBundle":$bundle)
+    >,
+    InterfaceMethod<[{}],
+      "size_t", "getNumDestConnections", (ins "WireBundle":$bundle)
+    >
+  ];
 }
 
 def AIETarget : OpInterface<"AIETarget"> {

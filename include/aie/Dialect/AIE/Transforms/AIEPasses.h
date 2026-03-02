@@ -20,16 +20,23 @@
 
 namespace xilinx::AIE {
 
+#define GEN_PASS_DECL_AIECORETOSTANDARD
+#define GEN_PASS_DECL_AIEASSIGNBUFFERADDRESSES
 #define GEN_PASS_CLASSES
 #include "aie/Dialect/AIE/Transforms/AIEPasses.h.inc"
 
 std::unique_ptr<mlir::OperationPass<DeviceOp>>
 createAIEAssignBufferAddressesPass();
+std::unique_ptr<mlir::OperationPass<DeviceOp>>
+createAIEAssignBufferAddressesPass(
+    const AIEAssignBufferAddressesOptions &options);
 std::unique_ptr<mlir::OperationPass<DeviceOp>> createAIEAssignLockIDsPass();
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createAIECanonicalizeDevicePass();
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createAIECoreToStandardPass();
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+createAIECoreToStandardPass(const AIECoreToStandardOptions &options);
 std::unique_ptr<mlir::OperationPass<DeviceOp>> createAIEFindFlowsPass();
 std::unique_ptr<mlir::OperationPass<DeviceOp>> createAIELocalizeLocksPass();
 std::unique_ptr<mlir::OperationPass<DeviceOp>>
@@ -41,8 +48,6 @@ std::unique_ptr<mlir::OperationPass<DeviceOp>>
 createAIEVectorToPointerLoopsPass();
 std::unique_ptr<mlir::OperationPass<DeviceOp>>
 createAIEVectorTransferLoweringPass();
-std::unique_ptr<mlir::OperationPass<mlir::LLVM::LLVMFuncOp>>
-createAIELLVMLoopOptPass();
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createAIEHoistVectorTransferPointersPass();
 std::unique_ptr<mlir::OperationPass<DeviceOp>> createAIEPathfinderPass();
@@ -75,9 +80,9 @@ struct AIEPathfinderPass : AIERoutePathfinderFlowsBase<AIEPathfinderPass> {
   AIEPathfinderPass() = default;
 
   void runOnOperation() override;
-  void runOnFlow(DeviceOp d, DynamicTileAnalysis &analyzer);
-  void runOnPacketFlow(DeviceOp d, mlir::OpBuilder &builder,
-                       DynamicTileAnalysis &analyzer);
+  mlir::LogicalResult runOnFlow(DeviceOp d, DynamicTileAnalysis &analyzer);
+  mlir::LogicalResult runOnPacketFlow(DeviceOp d, mlir::OpBuilder &builder,
+                                      DynamicTileAnalysis &analyzer);
 
   typedef std::pair<TileID, Port> PhysPort;
 
