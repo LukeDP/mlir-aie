@@ -86,16 +86,26 @@ build/mm_${m}x${k}x${n}.o: ${kernels_dir}/mm.cc
 	mkdir -p ${@D}
 	cd ${@D} && ${KERNEL_CC} ${KERNEL_CFLAGS} ${KERNEL_DEFINES} -c $< -o ${@F}
 
-# New rule to generate Roofline plot
+
+ITERATIONS?=10
+
 run_plot: run
-	@echo "--- Extracting Performance and Logging ---"
-	@# Eseguiamo l'eseguibile salvando l'output in un file temporaneo per il parsing
-	@./${targetname}.exe -x build/final_${target_suffix}.xclbin \
-		-i build/insts_${target_suffix}.txt -k MLIR_AIE \
-		-M ${M} -K ${K} -N ${N} ${runargs} > build/run_output.tmp
-	@# Estraiamo i GFLOPS dall'output appena generato
-	@GFLOPS=$$(grep "Avg NPU gflops" build/run_output.tmp | awk '{print $$NF}'); \
-	LABEL=$$( [ "$(use_poc)" = "1" ] && echo "PoC" || echo "Baseline" ); \
-	echo "GFLOPS: $$GFLOPS | Design: $$LABEL"; \
-	python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$GFLOPS $$LABEL
-	@rm build/run_output.tmp
+	@echo "--- Extracting Performance (Averaging over $(ITERATIONS) runs) ---"
+	@LABEL=$$( [ "$(use_poc)" = "1" ] && echo "PoC" || echo "Baseline" ); \
+	echo "Target: $$LABEL | Dimensions: M=$(M) K=$(K) N=$(N)"; \
+	AVG_GFLOPS=$$( \
+		for i in $$(seq 1 $(ITERATIONS)); do \
+			printf "  Iteration $$i/$(ITERATIONS)... "; \
+			GFLOPS=$$(./${targetname}.exe -x build/final_${target_suffix}.xclbin \
+				-i build/insts_${target_suffix}.txt -k MLIR_AIE \
+				-M ${M} -K ${K} -N ${N} ${runargs} | grep "Avg NPU gflops" | awk '{print $$NF}'); \
+			echo "$$GFLOPS GOPS"; \
+			echo "$$GFLOPS"; \
+		done | awk '{sum+=$$1; count++} END {if (count > 0) print sum/count; else print 0}' \
+	); \
+	if [ "$$AVG_GFLOPS" = "0" ]; then \
+		echo "Error: Could not extract performance data. Run check failed."; \
+		exit 1; \
+	fi; \
+	echo ">>> Final Average Throughput: $$AVG_GFLOPS GOPS"; \
+	python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$AVG_GFLOPS $$LABEL

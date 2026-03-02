@@ -1,0 +1,3 @@
+- In "Interconnect Dynamics and Contention Mitiga-
+tion" userei uno schema logico dell'interconnessione.
+- In "Staggered DMA Inception Logic" userei un diagramma temporale (Gantt-like) che mostra le fasi di calcolo e comunicazione sfasate.
