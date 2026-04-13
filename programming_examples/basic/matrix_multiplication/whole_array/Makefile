@@ -18,18 +18,28 @@ K?=512
 N?=512
 
 # m, k, n: single AIE core GEMM dimensions
-m?=32
-k?=32
-n?=32
+# We don't give m, k, n because the generator will optimize them
+# m?=32
+# k?=32
+# n?=32
+
+m?=0
+k?=0
+n?=0
+
 
 n_aie_cols?=8
 b_col_maj?=0
 c_col_maj?=0
 
 kernels=mm_${m}x${k}x${n}
-aieargs+=-m $m -k $k -n $n --n-aie-cols ${n_aie_cols} --b-col-maj ${b_col_maj} --dev npu2
+aieargs+=-M $M -K $K -N $N -m $m -k $k -n $n --n-aie-cols ${n_aie_cols} --b-col-maj ${b_col_maj} --dev npu2
 runargs+=--b_col_maj ${b_col_maj} 
-target_suffix=${M}x${K}x${N}_${m}x${k}x${n}_${n_aie_cols}c
+ifeq ($(m), 0)
+    target_suffix=${M}x${K}x${N}_auto_${n_aie_cols}c
+else
+    target_suffix=${M}x${K}x${N}_${m}x${k}x${n}_${n_aie_cols}c
+endif
 use_placed?=0
 use_iron?=0
 use_scalar?=0
@@ -63,7 +73,7 @@ endif
 use_poc?=0
 
 ifeq (${use_poc}, 1)
-aie_py_src=${targetname}_poc.py
+aie_py_src=${targetname}_poc_heuristic.py
 endif
 
 KERNEL_DEFINES=-D${dtype_in}_${dtype_out}_ONLY -DDIM_M=${m} -DDIM_K=${k} -DDIM_N=${n}
@@ -108,4 +118,4 @@ run_plot: run
 		exit 1; \
 	fi; \
 	echo ">>> Final Average Throughput: $$AVG_GFLOPS GOPS"; \
-	python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$AVG_GFLOPS $$LABEL
+	python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$AVG_GFLOPS $$LABEL $(OUT_PNG)

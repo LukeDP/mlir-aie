@@ -6,8 +6,10 @@
 # (c) Copyright 2025 AMD Inc.
 import argparse
 import numpy as np
+import sys
 
 from aie.extras.context import mlir_mod_ctx 
+from optimizer.tiling_optimizer import solve_mapping
 
 from aie.dialects.aie import *
 from aie.dialects.aiex import *
@@ -47,9 +49,9 @@ def main():
     argparser.add_argument("-M", type=int, default=512)
     argparser.add_argument("-K", type=int, default=512)
     argparser.add_argument("-N", type=int, default=512)
-    argparser.add_argument("-m", type=int, default=64)
-    argparser.add_argument("-k", type=int, default=64)
-    argparser.add_argument("-n", type=int, default=32)
+    argparser.add_argument("-m", type=int, default=0)
+    argparser.add_argument("-k", type=int, default=0)
+    argparser.add_argument("-n", type=int, default=0)
     argparser.add_argument("--n-aie-cols", type=int, choices=[1, 2, 4, 8], default=4)
     argparser.add_argument("--b-col-maj", type=int, choices=[0, 1], default=0)  # Whether B is column-major
     argparser.add_argument("--c-col-maj", type=int, choices=[0, 1], default=0)
@@ -74,6 +76,15 @@ def main():
     )
     args = argparser.parse_args()
 
+    #NEW CODE
+    if args.m == 0 or args.k == 0 or args.n == 0:
+        print(f";; Auto-optimizing mapping for {args.M}x{args.K}x{args.N}...", file=sys.stderr)
+        best_config, _ = solve_mapping(args.M, args.K, args.N)
+        if not best_config:
+            raise ValueError("No valid configuration found for given dimensions.")
+        args.m, args.k, args.n, j_val, ai_val = best_config
+        print(f";; Selected optimal tile: m={args.m}, k={args.k}, n={args.n} (Score J: {j_val:.4f})", file=sys.stderr)
+    
     with mlir_mod_ctx() as ctx:
         maybe_taps = my_matmul(
             args.dev,
