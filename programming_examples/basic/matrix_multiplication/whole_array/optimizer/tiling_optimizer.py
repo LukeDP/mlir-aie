@@ -4,21 +4,16 @@ def get_divisors(n):
     return [i for i in range(1, n + 1) if n % i == 0]
 
 def find_candidates(M, K, N, cols=8, rows=4):
-    """Trova tutti i possibili m, k, n che rispettano i vincoli di divisibilità e MAC."""
     
-    # Vincoli microkernel MAC (i16 su npu2)
+    # Constraints microkernel MAC (i16 for npu2)
     r, s, t = 4, 4, 8
-    
-    # m deve essere tale che (m * rows) divida M E m sia multiplo di r
+
     m_candidates = [m for m in get_divisors(M) if m % r == 0 and M % (m * rows) == 0]
-    
-    # k deve dividere K E essere multiplo di s
     k_candidates = [k for k in get_divisors(K) if k % s == 0]
-    
-    # n deve essere tale che (n * cols) divida N E n sia multiplo di t
     n_candidates = [n for n in get_divisors(N) if n % t == 0 and N % (n * cols) == 0]
     
     return m_candidates, k_candidates, n_candidates
+
 
 def filter_by_memory(m_list, k_list, n_list, K_global):
     valid_combinations = []
@@ -41,6 +36,7 @@ def filter_by_memory(m_list, k_list, n_list, K_global):
                     valid_combinations.append((m, k, n, l1_usage, l2_usage))
                     
     return valid_combinations
+
 
 def calculate_score(m, k, n, M, K, N, alpha=1.0, gamma=0.5, sigma=2.0):
     dsize = 2 # int16
