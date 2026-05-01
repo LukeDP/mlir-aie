@@ -6,7 +6,7 @@ def run_test(M, K, N, tag, mode):
     print(f"\nTEST {tag}: {M}x{K}x{N} ({mode})")
     
     if mode == "optimized":
-        best_config, _ = solve_mapping(M, K, N)
+        best_config, _ = solve_mapping(M, K, N, alpha=50.0, gamma=0.5, sigma=100.0)
         m, k, n, j, ai = best_config
         use_poc = "1"
         out_png = "roofline_optimized.png"

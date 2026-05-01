@@ -105,11 +105,11 @@ run_plot: run
 	echo "Target: $$LABEL | Dimensions: M=$(M) K=$(K) N=$(N)"; \
 	AVG_GFLOPS=$$( \
 		for i in $$(seq 1 $(ITERATIONS)); do \
-			printf "  Iteration $$i/$(ITERATIONS)... "; \
+			printf "  Iteration $$i/$(ITERATIONS)... ">&2; \
 			GFLOPS=$$(./${targetname}.exe -x build/final_${target_suffix}.xclbin \
 				-i build/insts_${target_suffix}.txt -k MLIR_AIE \
 				-M ${M} -K ${K} -N ${N} ${runargs} | grep "Avg NPU gflops" | awk '{print $$NF}'); \
-			echo "$$GFLOPS GOPS"; \
+			echo "$$GFLOPS GOPS">&2; \
 			echo "$$GFLOPS"; \
 		done | awk '{sum+=$$1; count++} END {if (count > 0) print sum/count; else print 0}' \
 	); \
@@ -118,4 +118,5 @@ run_plot: run
 		exit 1; \
 	fi; \
 	echo ">>> Final Average Throughput: $$AVG_GFLOPS GOPS"; \
-	python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$AVG_GFLOPS $$LABEL $(OUT_PNG)
+
+# python3 plot_roofline.py ${M} ${K} ${N} ${m} ${k} ${n} ${n_aie_cols} 2 $$AVG_GFLOPS $$LABEL $(OUT_PNG)

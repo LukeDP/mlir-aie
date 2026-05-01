@@ -17,64 +17,51 @@ def find_candidates(M, K, N, cols=8, rows=4):
 
 def filter_by_memory(m_list, k_list, n_list, K_global):
     valid_combinations = []
-    
-    L1_LIMIT = 32 * 1024  # 32 KB
-    L2_LIMIT = 512 * 1024 # 512 KB
+    # Aumentiamo a 60KB per permettere tile competitivi lasciando spazio allo stack
+    L1_LIMIT = 60 * 1024  
+    L2_LIMIT = 512 * 1024 
     
     for m in m_list:
         for k in k_list:
             for n in n_list:
-                # L1 (Double Buffering)
-                # A: i16 (2B), B: i16 (2B), C: i32 (4B)
                 l1_usage = 2 * ((m * k * 2) + (k * n * 2) + (m * n * 4))
-                
-                # L2 (Stationary-A)
-                # Ping-pong for B and C (C is accumulated for 4 rows)
                 l2_usage = (m * K_global * 2) + 2 * (k * n * 2) + 2 * (m * n * 4 * 4)
                 
                 if l1_usage <= L1_LIMIT and l2_usage <= L2_LIMIT:
                     valid_combinations.append((m, k, n, l1_usage, l2_usage))
-                    
     return valid_combinations
 
-
 def calculate_score(m, k, n, M, K, N, alpha=1.0, gamma=0.5, sigma=2.0):
-    dsize = 2 # int16
+    # AI del TILE: Calcola l'efficienza del movimento dati specifica per questo tile
+    tile_ops = 2 * m * n * k
+    tile_bytes = (m * k * 2) + (k * n * 2) + (m * n * 8 / (K/k))
+    tile_ai = tile_ops / tile_bytes
     
-    # 1. Arithmetic Intensity (AI)
-    ops = 2 * M * K * N
-    # Stationary-A: Matrix A is read once
-    total_bytes = (M * K + K * N + M * N) * dsize
-    ai = ops / total_bytes
+    # Efficienza Hardware: Penalizza pesantemente i k piccoli (sotto 64)
+    term_k_efficiency = (64 / k) ** 2
     
-    # 2. Bandwidth term
-    term_bandwidth = 1 / ai
-    
-    # 3. Stall Penalty
+    term_bandwidth = 1 / tile_ai
     term_contention = 1 / n
+    num_iterations = (M // m) * (N // (n * 8))
+    term_setup = num_iterations * 0.007
     
-    # 4. Setup Penalty
-    num_iterations = (M // m) * (N // (n * 8)) # 8 è n_cols
-    term_overhead = num_iterations * 0.007 # 7ms di setup
-    
-    # 5. J 
-    j = (alpha * term_bandwidth) + (gamma * term_contention) + (sigma * term_overhead)
-    
-    return j, ai
+    # Funzione di costo J bilanciata
+    j = (alpha * (term_bandwidth + term_k_efficiency)) + (gamma * term_contention) + (sigma * term_setup)
+    return j, tile_ai
 
 
 
-def solve_mapping(M, K, N):
+def solve_mapping(M, K, N, alpha=50.0, gamma=0.1, sigma=100.0): # Pesi suggeriti
     m_c, k_c, n_c = find_candidates(M, K, N)
     valid_configs = filter_by_memory(m_c, k_c, n_c, K)
     
     best_config = None
     min_j = float('inf')
-    
     results = []
     
     for m, k, n, l1, l2 in valid_configs:
-        j, ai = calculate_score(m, k, n, M, K, N)
+        # CORREZIONE: Passiamo alpha, gamma, sigma qui[cite: 28]
+        j, ai = calculate_score(m, k, n, M, K, N, alpha, gamma, sigma)
         results.append((m, k, n, j, ai))
         
         if j < min_j:
