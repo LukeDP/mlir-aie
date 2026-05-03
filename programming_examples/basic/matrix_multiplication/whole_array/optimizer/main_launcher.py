@@ -21,7 +21,7 @@ def run_test(M, K, N, tag, mode):
         f"M={M}", f"K={K}", f"N={N}",
         f"m={m}", f"k={k}", f"n={n}",
         f"use_poc={use_poc}", f"OUT_PNG={out_png}",
-        "ITERATIONS=5"
+        "ITERATIONS=20"
     ]
     
     subprocess.run(cmd, cwd="..", check=True)

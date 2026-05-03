@@ -8,6 +8,8 @@ alphas = [10.0, 50.0, 100.0]   # Spingiamo sull'efficienza
 gammas = [0.01, 0.1, 0.5]      # Teniamo bassa la penalità contenzione
 sigmas = [50.0, 100.0, 200.0, 500.0] # Testiamo diverse tolleranze all'overhead
 
+
+
 # Dimensioni del test case per il tuning
 #(BALANCED)
 # M, K, N = 512, 512, 512
