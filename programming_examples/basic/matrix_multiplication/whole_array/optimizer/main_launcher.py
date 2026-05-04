@@ -12,7 +12,7 @@ def run_test(M, K, N, tag, mode):
         out_png = "roofline_optimized.png"
     else:
         # Standard values for the baseline
-        m, k, n = 64, 64, 32 
+        m, k, n = 32, 32, 32 
         use_poc = "0"
         out_png = "roofline_baseline.png"
 
