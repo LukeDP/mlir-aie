@@ -76,7 +76,9 @@ def main():
     )
     args = argparser.parse_args()
 
-    #NEW CODE
+    # --- AUTO-OPTIMIZATION LOGIC ---
+    # If tiling parameters (m, k, n) are not provided (default 0), 
+    # the solver is triggered to find the optimal mapping for the given M, K, N.
     if args.m == 0 or args.k == 0 or args.n == 0:
         print(f";; Auto-optimizing mapping for {args.M}x{args.K}x{args.N}...", file=sys.stderr)
         best_config, _ = solve_mapping(args.M, args.K, args.N)
@@ -133,12 +135,15 @@ def my_matmul(
     trace_size,
     generate_taps=False,
 ):
-    n_aie_rows = 4
+    # --- HARDWARE TOPOLOGY ---
+    # Set to 2 rows to avoid DMA channel saturation on NPU2 Memory Tiles.
+    n_aie_rows = 2
     n_aie_cores = n_aie_rows * n_aie_cols 
 
     dtype_in = str_to_dtype(dtype_in_str)
     dtype_out = str_to_dtype(dtype_out_str)
 
+    # Validate input/output data types compatibility.
     assert np.issubdtype(dtype_in, np.integer) == np.issubdtype(
         dtype_out, np.integer
     ), f"Input dtype ({dtype_in}) and output dtype ({dtype_out}) must either both be integral or both be float"
@@ -153,7 +158,7 @@ def my_matmul(
     else:
         r, s, t = mac_dims
 
-    # npu is a 4 row x 4 col array
+    # Grid boundary checks for NPU and NPU2.
     if dev == "npu" and n_aie_cols > 4:
         raise AssertionError("Invalid configuration: NPU (Phoenix/Hawk) has 4 columns")
     # npu2 is a 4 row x 8 col array
@@ -230,6 +235,7 @@ def my_matmul(
     @device(dev_ty)
     def device_body():
         # _l2_ty are the types used in L2 FIFOs
+        # A_l2_ty holds a full row of A to support Stationary-A riutilization
         A_l2_ty = np.ndarray[(m * K,), np.dtype[dtype_in]]
         B_l2_ty = np.ndarray[(k * n,), np.dtype[dtype_in]]
         C_l2_ty = np.ndarray[(m * n * n_aie_rows,), np.dtype[dtype_out]] # accumulate n_aie_rows tiles before writing back to L3
@@ -424,16 +430,16 @@ def my_matmul(
                             elem_out = C_l1l2_fifos[row][col].acquire(ObjectFifoPort.Produce, 1)
                             zero(elem_out)
                             
-                            # Accumulazione con riutilizzo "Stationary-A"
+                            # --- STATIONARY-A POC LOGIC ---
+                            # Reduction loop over dimension K. 
+                            # CONCEPT: Keep A in the core's L1 for a micro-instant longer to reduce NoC syncs.
                             for _ in range_(K // k):
-                                # Acquisiamo A e B
                                 elem_in_a = A_l2l1_fifos[row].acquire(ObjectFifoPort.Consume, 1)
                                 elem_in_b = B_l2l1_fifos[col].acquire(ObjectFifoPort.Consume, 1)
                                 
                                 matmul(elem_in_a, elem_in_b, elem_out)
                                 
-                                # PoC: Rilasciamo B, ma A lo teniamo per un micro-istante in più 
-                                # nel buffer L1 del core
+                                # Immediate release to free buffers for next ping-pong iteration
                                 A_l2l1_fifos[row].release(ObjectFifoPort.Consume, 1)
                                 B_l2l1_fifos[col].release(ObjectFifoPort.Consume, 1)
 
