@@ -137,16 +137,17 @@ def my_matmul(
 ):
     # --- HARDWARE TOPOLOGY ---
     # Set to 2 rows to avoid DMA channel saturation on NPU2 Memory Tiles.
-    n_aie_rows = 2
+    n_aie_rows = 2 if dtype_in_str == "bf16" else 4
     n_aie_cores = n_aie_rows * n_aie_cols 
 
     dtype_in = str_to_dtype(dtype_in_str)
     dtype_out = str_to_dtype(dtype_out_str)
 
     # Validate input/output data types compatibility.
-    assert np.issubdtype(dtype_in, np.integer) == np.issubdtype(
-        dtype_out, np.integer
-    ), f"Input dtype ({dtype_in}) and output dtype ({dtype_out}) must either both be integral or both be float"
+    is_in_int = False if dtype_in_str in ["bf16", "f32"] else np.issubdtype(dtype_in, np.integer)
+    is_out_int = False if dtype_out_str in ["bf16", "f32"] else np.issubdtype(dtype_out, np.integer)
+
+    assert is_in_int == is_out_int, f"Input dtype ({dtype_in_str}) and output dtype ({dtype_out_str}) must either both be integral or both be float"
     assert (
         np.dtype(dtype_out).itemsize >= np.dtype(dtype_in).itemsize
     ), f"Output dtype ({dtype_out}) must be equal or larger to input dtype ({dtype_in})" # for example if we multiply i8 inputs we can store the output in i16 

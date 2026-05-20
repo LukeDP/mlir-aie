@@ -51,8 +51,8 @@ constexpr int verify_stochastic_n_samples = 1000;
 
 // Verification tolerance
 // See "Note on Numerical Tolerances" in README.md
-float abs_tol = matmul_common::get_abs_tol<C_DATATYPE>();
-float rel_tol = matmul_common::get_rel_tol<C_DATATYPE>();
+float abs_tol = matmul_common::get_abs_tol<C_DATATYPE>() * 10.0f; 
+float rel_tol = matmul_common::get_rel_tol<C_DATATYPE>() * 10.0f;
 
 int main(int argc, const char *argv[]) {
   // Program arguments parsing

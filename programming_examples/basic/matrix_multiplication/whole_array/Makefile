@@ -31,10 +31,12 @@ n?=0
 n_aie_cols?=8
 b_col_maj?=0
 c_col_maj?=0
+dtype_in?=bf16
+dtype_out?=bf16
 
 kernels=mm_${m}x${k}x${n}
-aieargs+=-M $M -K $K -N $N -m $m -k $k -n $n --n-aie-cols ${n_aie_cols} --b-col-maj ${b_col_maj} --dev npu2
-runargs+=--b_col_maj ${b_col_maj} 
+aieargs+=-M $M -K $K -N $N -m $m -k $k -n $n --n-aie-cols ${n_aie_cols} --b-col-maj ${b_col_maj} --dev npu2 --dtype_in ${dtype_in} --dtype_out ${dtype_out}
+runargs+=--b_col_maj ${b_col_maj}
 ifeq ($(m), 0)
     target_suffix=${M}x${K}x${N}_auto_${n_aie_cols}c
 else
@@ -89,6 +91,8 @@ ifeq (${use_scalar}, 1)
 else
 	KERNEL_DEFINES+=-DVECTORIZED_ONLY
 endif
+
+
 
 include ${srcdir}/../makefile-common
 
