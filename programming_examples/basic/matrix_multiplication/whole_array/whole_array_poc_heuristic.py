@@ -137,7 +137,7 @@ def my_matmul(
 ):
     # --- HARDWARE TOPOLOGY ---
     # Set to 2 rows to avoid DMA channel saturation on NPU2 Memory Tiles.
-    n_aie_rows = 2 if dtype_in_str == "bf16" else 4
+    n_aie_rows = 2
     n_aie_cores = n_aie_rows * n_aie_cols 
 
     dtype_in = str_to_dtype(dtype_in_str)

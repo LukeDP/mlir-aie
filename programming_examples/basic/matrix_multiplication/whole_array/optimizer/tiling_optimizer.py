@@ -26,8 +26,8 @@ def filter_by_memory(m_list, k_list, n_list, M_global, K_global, N_global, dtype
     L2_LIMIT = 512 * 1024 
     
     # rows in base al tipo di dato
-    rows = 2 if dtype == "bf16" else 4
-    n_A_tiles_per_shim = rows // cols if cols < 4 else 1
+    rows = 2
+    n_A_tiles_per_shim = max(1, rows // cols) if cols < 4 else 1
     
     c_bytes = 2 if dtype == "bf16" else 4  
     
@@ -49,6 +49,8 @@ def filter_by_memory(m_list, k_list, n_list, M_global, K_global, N_global, dtype
                 l2_usage = (m * K_global * 2) + 2 * (k * n * 2) + 2 * (m * n * c_bytes * 2)
                 
                 if l1_usage <= L1_LIMIT and l2_usage <= L2_LIMIT:
+                    if K_global >= 2048 and m > 32:
+                        continue
                     valid_combinations.append((m, k, n, l1_usage, l2_usage))
     return valid_combinations
 

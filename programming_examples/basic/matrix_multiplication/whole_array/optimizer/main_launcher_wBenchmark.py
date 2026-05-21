@@ -5,6 +5,7 @@ import os
 import sys
 import numpy as np
 from scipy.optimize import differential_evolution
+from memory_plotter import generate_memory_plot
 from tiling_optimizer import solve_mapping
 
 CACHE_FILE = "best_weights_cache.json"
@@ -134,17 +135,35 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--optimized", action="store_true", help="Run optimized benchmarks with Super-Tuner")
     parser.add_argument("-t", "--type", type=str, choices=["i16", "bf16"], default="bf16", 
                         help="Data type inside the matrix: i16 (integers) or bf16 (floating-point)")
+    # Flag per abilitare i grafici di memoria
+    parser.add_argument("-p", "--plot-memory", action="store_true", help="Generate memory access charts")
     args = parser.parse_args()
 
     mode = "optimized" if args.optimized else "baseline"
     cache = load_cache()
-    
+
+    # Definizione delle forme di stress standard (Balanced, Bert, Memory, Reduction)
     tests = [
-        (512, 512, 512, "BALANCED"),
-        (512, 768, 768, "BERT_SHAPE"),
-        (512, 512, 2048, "MEMORY_STRESS_N"),
-        (512, 2048, 512, "REDUCTION_STRESS_K")
+        (512, 512, 512, "balanced"),
+        (512, 768, 768, "bert"),
+        (512, 512, 2048, "memory"),
+        (512, 2048, 512, "reduction")
     ]
 
     for M, K, N, tag in tests:
+        # 1. Eseguiamo l'hardware test principale (compilazione ed esecuzione)
         run_test(M, K, N, tag, mode, cache, dtype=args.type)
+        
+        # 2. Se il flag -p è attivo, intercettiamo le geometrie giuste per fare il plot
+        if args.plot_memory:
+            if mode == "baseline":
+                # Nella baseline il tiling di AMD è fisso a 32x32x32
+                generate_memory_plot(M, K, N, args.type, m=32, k=32, n=32, mode="baseline")
+            else:
+                # Nell'ottimizzato estraiamo la combinazione vincente salvata in cache dal sintonizzatore
+                shape_key = f"{M}x{K}x{N}_{args.type}"
+                w = cache.get(shape_key)
+                if w:
+                    best_config, _ = solve_mapping(M, K, N, alpha=w['alpha'], gamma=w['gamma'], sigma=w['sigma'], dtype=args.type)
+                    opt_m, opt_k, opt_n = best_config[0], best_config[1], best_config[2]
+                    generate_memory_plot(M, K, N, args.type, opt_m, opt_k, opt_n, mode="optimized")
