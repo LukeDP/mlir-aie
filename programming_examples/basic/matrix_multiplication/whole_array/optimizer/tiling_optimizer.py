@@ -65,7 +65,16 @@ def calculate_score(m, k, n, M, K, N, alpha, gamma, sigma, dtype="bf16"):
     
     # NPU Efficiency Term: cambia il divisore di k a seconda dell'architettura vettoriale
     k_div = 64 if dtype == "bf16" else 32
-    term_npu = (128/m)**3 + (k_div/k)**2 + (64/n)**2 
+    
+    # Ottimizzazione Hardware-Aware: Modellazione della contenzione dell'interconnessione.
+    # Nelle configurazioni ad 8 colonne, se il tile locale n scende sotto una determinata
+    # soglia di saturazione (es. 64), la frequenza delle richieste DMA burst genera 
+    # instabilità e stalli negli switch AXI-Stream. Amplifichiamo la penalità di n
+    # per riflettere il Parallelism Paradox misurato a livello hardware.
+    n_cols = 8
+    interconnect_contention_factor = (n_cols ** 2) if n < 64 else 1.0
+    
+    term_npu = (128/m)**3 + (k_div/k)**2 + ((64/n)**2 * interconnect_contention_factor)
     
     # Bandwidth Term
     term_bandwidth = 1 / tile_ai

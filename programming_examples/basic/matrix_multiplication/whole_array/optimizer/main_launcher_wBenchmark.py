@@ -144,10 +144,10 @@ if __name__ == "__main__":
 
     # Definizione delle forme di stress standard (Balanced, Bert, Memory, Reduction)
     tests = [
-        (512, 512, 512, "balanced"),
-        (512, 768, 768, "bert"),
-        (512, 512, 2048, "memory"),
-        (512, 2048, 512, "reduction")
+        (512, 512, 512, "BALANCED"),
+        (512, 768, 768, "BERT_SHAPE"),
+        (512, 512, 2048, "MEMORY_STRESS_N"),
+        (512, 2048, 512, "REDUCTION_STRESS_K")
     ]
 
     for M, K, N, tag in tests:
