@@ -51,6 +51,10 @@ def filter_by_memory(m_list, k_list, n_list, M_global, K_global, N_global, dtype
                 if l1_usage <= L1_LIMIT and l2_usage <= L2_LIMIT:
                     if K_global >= 2048 and m > 32:
                         continue
+                    
+                    if N_global >= 4096 and m < 8:
+                        continue
+
                     valid_combinations.append((m, k, n, l1_usage, l2_usage))
     return valid_combinations
 

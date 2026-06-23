@@ -55,7 +55,7 @@ def run_super_tuner(M, K, N, dtype):
             except: pass
 
         cmd = ["make", "run_plot", f"M={M}", f"K={K}", f"N={N}", f"m={m}", f"k={k}", f"n={n}", 
-               "use_poc=1", "ITERATIONS=10", "opt_perf=1", f"dtype_in={dtype}", f"dtype_out={dtype}"]
+               "use_poc=1", "ITERATIONS=10", "opt_perf=1", f"dtype_in={dtype}", f"dtype_out={dtype_out}"]
         res = subprocess.run(cmd, cwd="..", capture_output=True, text=True)
         
         gops = 0.0
@@ -100,7 +100,6 @@ def run_test(M, K, N, tag, mode, cache, dtype):
     else:
         m, k, n, use_poc, opt_perf = 32, 32, 32, "0", "0"
 
-    # --- CANCELLAZIONE INTELLIGENTE CONDIZIONALE AVANZATA ---
     last_dtype = cache.get("last_compiled_dtype", "")
     last_mode = cache.get("last_compiled_mode", "")
     
@@ -120,29 +119,30 @@ def run_test(M, K, N, tag, mode, cache, dtype):
     else:
         print(f"[Launcher] Stessa configurazione hardware precedente ({dtype} - {mode}). Salto la rigenerazione di _build.")
 
-    dtype_out = "bf16" if dtype == "bf16" else "i32"
+    out_type = "bf16" if dtype == "bf16" else "i32"
 
-    # Esecuzione finale dell'hardware
+
     cmd = ["make", "run_plot", f"M={M}", f"K={K}", f"N={N}", f"m={m}", f"k={k}", f"n={n}", 
-           f"use_poc={use_poc}", "ITERATIONS=20", f"opt_perf={opt_perf}", f"dtype_in={dtype}", f"dtype_out={dtype}"]
+           f"use_poc={use_poc}", "ITERATIONS=20", f"opt_perf={opt_perf}", f"dtype_in={dtype}", f"dtype_out={out_type}"]
         
-    subprocess.run(cmd, cwd="..", check=True)
+    try:
+        subprocess.run(cmd, cwd="..", check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"[Error] Execution failed for configuration {tag}.")
+        sys.exit(1)
 
-# --- BLOCCO MANCANTE DI EXECUTION ENTRY-POINT RIPRISTINATO ---
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Performance Launcher for AIE Matrix Multiplication")
     parser.add_argument("-b", "--baseline", action="store_true", help="Run baseline benchmarks")
     parser.add_argument("-o", "--optimized", action="store_true", help="Run optimized benchmarks with Super-Tuner")
-    parser.add_argument("-t", "--type", type=str, choices=["i16", "bf16"], default="bf16", 
-                        help="Data type inside the matrix: i16 (integers) or bf16 (floating-point)")
-    # Flag per abilitare i grafici di memoria
+    parser.add_argument("-t", "--type", type=str, choices=["i16", "bf16"], default="bf16", help="Data type inside the matrix: i16 (integers) or bf16 (floating-point)")
     parser.add_argument("-p", "--plot-memory", action="store_true", help="Generate memory access charts")
     args = parser.parse_args()
 
     mode = "optimized" if args.optimized else "baseline"
     cache = load_cache()
 
-    # Definizione delle forme di stress standard (Balanced, Bert, Memory, Reduction)
     tests = [
         (512, 512, 512, "BALANCED"),
         (512, 768, 768, "BERT_SHAPE"),
@@ -151,16 +151,12 @@ if __name__ == "__main__":
     ]
 
     for M, K, N, tag in tests:
-        # 1. Eseguiamo l'hardware test principale (compilazione ed esecuzione)
         run_test(M, K, N, tag, mode, cache, dtype=args.type)
         
-        # 2. Se il flag -p è attivo, intercettiamo le geometrie giuste per fare il plot
         if args.plot_memory:
             if mode == "baseline":
-                # Nella baseline il tiling di AMD è fisso a 32x32x32
                 generate_memory_plot(M, K, N, args.type, m=32, k=32, n=32, mode="baseline")
             else:
-                # Nell'ottimizzato estraiamo la combinazione vincente salvata in cache dal sintonizzatore
                 shape_key = f"{M}x{K}x{N}_{args.type}"
                 w = cache.get(shape_key)
                 if w:

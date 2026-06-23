@@ -49,8 +49,10 @@ def get_hardware_throughput(M, K, N, m, k, n, use_poc, opt_perf, dtype):
 
     print(f"      [Hardware Execution] Target Tile {m}x{k}x{n} (use_poc={use_poc})... ", end="", flush=True)
     
+    out_type = "bf16" if dtype == "bf16" else "i32"
+    
     cmd = ["make", "run_plot", f"M={M}", f"K={K}", f"N={N}", f"m={m}", f"k={k}", f"n={n}", 
-           f"use_poc={use_poc}", "ITERATIONS=15", f"opt_perf={opt_perf}", f"dtype_in={dtype}", f"dtype_out={dtype}"]
+           f"use_poc={use_poc}", "ITERATIONS=15", f"opt_perf={opt_perf}", f"dtype_in={dtype}", f"dtype_out={out_type}"]
     
     try:
         res = subprocess.run(cmd, cwd="..", capture_output=True, text=True, timeout=150)
@@ -133,7 +135,8 @@ def generate_combinatorial_test_matrix():
     return valid_shapes
 
 def main():
-    data_types = ["bf16", "i16"]
+    # data_types = ["bf16", "i16"]
+    data_types = ["i16"]
     shapes = generate_combinatorial_test_matrix()
     print(f"[PERFECTIONIST TESTER] Initializing massive sweep across {len(shapes)} unique tensor architectures.")
 
