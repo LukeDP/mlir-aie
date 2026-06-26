@@ -2,76 +2,84 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 
-def generate_memory_plot(M, K, N, dtype, m, k, n, mode):
+def generate_unified_memory_plot(M, K, N, dtype, opt_m, opt_k, opt_n):
     """
-    Analytically calculates DDR memory accesses and emits a profile chart.
-    Supports both baseline and optimized modes dynamically, writing everything in English.
+    Calcola analiticamente gli accessi DDR e genera un grafico a barre raggruppate
+    che confronta direttamente la Baseline AMD e l'ottimizzazione Super-Tuner.
     """
-    in_bytes = 2  # Both bf16 and i16 occupy 2 bytes at input
+    in_bytes = 2 
     c_bytes = 2 if dtype == "bf16" else 4
-    
-    tiles_M = M // m
-    tiles_N = N // n
-    tiles_K = K // k
-    
-    # Analytical traffic calculation based on data stationarity
-    if mode == "baseline":
-        # AMD standard baseline reloads A for each column block of B
-        ddr_reads_A = tiles_M * tiles_K * tiles_N * (m * k * in_bytes)
-        title_label = f"AMD Baseline (Standard Tiling: {m}x{k}x{n})"
-        color_palette = ['#ff8888', '#ffaaaa', '#ffcccc', '#d11a1a']
-    else:
-        # Optimized uses Stationary-A: A is read from DDR only once globally
-        ddr_reads_A = tiles_M * tiles_K * (m * k * in_bytes)
-        title_label = f"Optimized Super-Tuner (Tiling: {m}x{k}x{n})"
-        color_palette = ['#66bb66', '#99cc99', '#c2e0c2', '#1e7b1e']
-        
-    ddr_reads_B = tiles_M * tiles_K * tiles_N * (k * n * in_bytes)
-    ddr_writes_C = tiles_M * tiles_N * (m * n * c_bytes)
-    total_ddr = ddr_reads_A + ddr_reads_B + ddr_writes_C
-    
-    # Convert to Megabytes
     to_mb = 1024 * 1024
+    
+    # --- CALCOLO BASELINE (Fisso a 32x32x32) ---
+    b_tiles_M, b_tiles_N, b_tiles_K = M // 32, N // 32, K // 32
+    b_reads_A = b_tiles_M * b_tiles_K * b_tiles_N * (32 * 32 * in_bytes)
+    b_reads_B = b_tiles_M * b_tiles_K * b_tiles_N * (32 * 32 * in_bytes)
+    b_writes_C = b_tiles_M * b_tiles_N * (32 * 32 * c_bytes)
+    b_total = b_reads_A + b_reads_B + b_writes_C
+    
+    # --- CALCOLO OPTIMIZED (Tile dinamico + Stationary A) ---
+    o_tiles_M, o_tiles_N, o_tiles_K = M // opt_m, N // opt_n, K // opt_k
+    o_reads_A = o_tiles_M * o_tiles_K * (opt_m * opt_k * in_bytes) # Addio loop su N!
+    o_reads_B = o_tiles_M * o_tiles_K * o_tiles_N * (opt_k * opt_n * in_bytes)
+    o_writes_C = o_tiles_M * o_tiles_N * (opt_m * opt_n * c_bytes)
+    o_total = o_reads_A + o_reads_B + o_writes_C
+    
+    # --- PREPARAZIONE DATI PER IL GRAFICO ---
     categories = ['Matrix A Reads', 'Matrix B Reads', 'Matrix C Writes', 'Total DDR Traffic']
-    volumes = [ddr_reads_A / to_mb, ddr_reads_B / to_mb, ddr_writes_C / to_mb, total_ddr / to_mb]
+    baseline_vols = [b_reads_A/to_mb, b_reads_B/to_mb, b_writes_C/to_mb, b_total/to_mb]
+    opt_vols = [o_reads_A/to_mb, o_reads_B/to_mb, o_writes_C/to_mb, o_total/to_mb]
     
-    # Create output directory if it doesn't exist
-    output_dir = "../memory_profiles"
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # --- DISEGNO DEL GRAFICO (Grouped Bar Chart) ---
+    output_dir = "memory_profiles"
+    os.makedirs(output_dir, exist_ok=True)
     
-    # Plot construction
-    fig, ax = plt.subplots(figsize=(9, 5.5), dpi=150)
-    bars = ax.bar(categories, volumes, color=color_palette, edgecolor='black', width=0.5)
+    x = np.arange(len(categories))
+    width = 0.35  # Spessore delle barre
     
+    fig, ax = plt.subplots(figsize=(10, 6), dpi=150)
+    
+    # Barre Rosse (Baseline) e Verdi (Ottimizzato)
+    rects1 = ax.bar(x - width/2, baseline_vols, width, label='AMD Baseline (32x32x32)', color='#e63946', edgecolor='black')
+    rects2 = ax.bar(x + width/2, opt_vols, width, label=f'Stationary-A ({opt_m}x{opt_k}x{opt_n})', color='#2a9d8f', edgecolor='black')
+    
+    # Stile e Testi
     ax.set_ylabel('Data Transferred Volume (Megabytes)', fontsize=12, fontweight='bold')
-    ax.set_title(f'External Memory Access Profile (DDR)\nGlobal Shape: {M}x{K}x{N} ({dtype}) - {title_label}', 
-                 fontsize=13, fontweight='bold', pad=15)
+    ax.set_title(f'Analytical Memory Access Profile (DDR) Comparison\nGlobal Shape: {M}x{K}x{N} ({dtype})', 
+                 fontsize=14, fontweight='bold', pad=15)
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories, fontsize=11, fontweight='bold')
+    ax.legend(fontsize=11)
     ax.grid(axis='y', linestyle='--', alpha=0.5)
     
-    # Add values on top of bars
-    for bar in bars:
-        height = bar.get_height()
-        ax.annotate(f'{height:.2f} MB',
-                    xy=(bar.get_x() + bar.get_width() / 2, height),
-                    xytext=(0, 3),  
-                    textcoords="offset points",
-                    ha='center', va='bottom', fontsize=10, fontweight='bold')
-        
-    # Calculate local Arithmetic Intensity
-    tile_ops = 2 * m * n * k
-    tile_bytes = (m * k * in_bytes) + (k * n * in_bytes) + (m * n * c_bytes)
-    ai = tile_ops / tile_bytes
-    
-    # Info Box
-    textstr = f"Mode: {mode.upper()}\nTiling: {m}x{k}x{n}\nArithmetic Intensity: {ai:.2f} OP/Byte"
-    props = dict(boxstyle='round', facecolor='whitesmoke', alpha=0.8, edgecolor='gray')
-    ax.text(0.05, 0.92, textstr, transform=ax.transAxes, fontsize=10, verticalalignment='top', bbox=props)
+    # Funzione per aggiungere i numeretti sopra le barre
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.annotate(f'{height:.1f} MB',
+                        xy=(rect.get_x() + rect.get_width() / 2, height),
+                        xytext=(0, 3), textcoords="offset points",
+                        ha='center', va='bottom', fontsize=9, fontweight='bold')
+            
+    autolabel(rects1)
+    autolabel(rects2)
     
     fig.tight_layout()
     
-    # Save the plot inside the dedicated folder
-    output_name = f"{output_dir}/memory_profile_{mode}_{M}x{K}x{N}_{dtype}.png"
+    # Salvataggio
+    output_name = f"{output_dir}/unified_memory_profile_{M}x{K}x{N}_{dtype}.png"
     plt.savefig(output_name)
     plt.close()
-    print(f"[Plotter] Memory profile chart saved for {mode.upper()}: {output_name}")
+    print(f"[Plotter] Images saved in: {output_name}")
+
+# Esempio di utilizzo diretto (generazione multipla per la tesi)
+if __name__ == "__main__":
+    
+    # 1. Caso BERT/LLM (Ottimizzazione eccellente)
+    generate_unified_memory_plot(M=512, K=768, N=768, dtype="bf16", opt_m=32, opt_k=16, opt_n=64)
+    
+    # 2. Caso Matrice Asimmetrica Estrema (Enorme risparmio di banda)
+    generate_unified_memory_plot(M=64, K=1024, N=4096, dtype="i16", opt_m=8, opt_k=4, opt_n=512)
+    
+    # 3. Caso Balanced/Quadrato (Dove AMD si difende bene)
+    generate_unified_memory_plot(M=1024, K=1024, N=1024, dtype="bf16", opt_m=32, opt_k=32, opt_n=32)
