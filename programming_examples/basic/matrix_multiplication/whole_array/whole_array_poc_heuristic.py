@@ -81,7 +81,7 @@ def main():
     # the solver is triggered to find the optimal mapping for the given M, K, N.
     if args.m == 0 or args.k == 0 or args.n == 0:
         print(f";; Auto-optimizing mapping for {args.M}x{args.K}x{args.N}...", file=sys.stderr)
-        best_config, _ = solve_mapping(args.M, args.K, args.N)
+        best_config, _ = solve_mapping(args.M,args.K,args.N,dtype=args.dtype_in)
         if not best_config:
             raise ValueError("No valid configuration found for given dimensions.")
         args.m, args.k, args.n, j_val, ai_val = best_config
@@ -136,7 +136,11 @@ def my_matmul(
     generate_taps=False,
 ):
     # --- HARDWARE TOPOLOGY ---
-    # Set to 2 rows to avoid DMA channel saturation on NPU2 Memory Tiles.
+    # The optimized mapping uses two active AIE rows.
+    # This topology was empirically selected to reduce vertical
+    # data-movement and routing pressure in the evaluated design.
+    # It is an implementation-level optimization rather than a
+    # direct architectural limit on the number of Memory Tile DMA channels.
     n_aie_rows = 2
     n_aie_cores = n_aie_rows * n_aie_cols 
 
@@ -189,9 +193,12 @@ def my_matmul(
 
     # r, s, t are the dimensions required by the microkernel MAC instructions.
     if not use_scalar:
-        assert m % r == 0
+    # The evaluated vectorized kernels require two r-sized blocks
+    # along the M dimension. This mirrors the compile-time constraint
+    # enforced by the underlying matrix-multiplication kernel.
+        assert m % (2 * r) == 0
         assert k % s == 0
-        assert n % t == 0
+        assert n % (2 * t) == 0
 
     # If you get errors during CDO generation due to running out of program
     # memory, it may be because too much code is generated due to ObjectFIFO
@@ -202,15 +209,14 @@ def my_matmul(
     # Number of tiles processed by each core
     n_tiles_per_core = (M // m) * (N // n) // n_aie_cores
 
-    # When using more AIE columns than n_aie_rows (4) (applicable to NPU2),
-    # restrict the number of shim/mem tiles to n_aie_rows,
-    # since we have only n_aie_rows row tiles for matrix A
+    # When the number of AIE columns exceeds the number of active rows,
+    # restrict the number of A shim/Memory-Tile paths to n_aie_rows,
+    # since matrix A is partitioned across the active compute rows.
     if n_aie_cols > n_aie_rows:
         n_shim_mem_A = n_aie_rows
-    # When using n_aie_rows (4) or less AIE columns (both NPU and NPU2),
-    # the number of shim/mem tiles are equal to n_aie_cols.
-    # We use the distribute pattern in object FIFO (see linking for A below),
-    # since we have n_aie_rows (4) row tiles for matrix A
+
+    # Otherwise, use one A shim/Memory-Tile path per active column.
+    # The ObjectFIFO linking logic below distributes A across rows when needed.
     else:
         n_shim_mem_A = n_aie_cols
 
@@ -236,7 +242,10 @@ def my_matmul(
     @device(dev_ty)
     def device_body():
         # _l2_ty are the types used in L2 FIFOs
-        # A_l2_ty holds a full row of A to support Stationary-A riutilization
+        # A_L3L2 stores one full-K (m x K) slice of matrix A in the
+        # Memory Tile. With ObjectFIFO depth 2, this allocation is
+        # physically double-buffered. The slice is subsequently streamed
+        # toward the Compute Tiles as fine-grained (m x k) sub-tiles.
         A_l2_ty = np.ndarray[(m * K,), np.dtype[dtype_in]]
         B_l2_ty = np.ndarray[(k * n,), np.dtype[dtype_in]]
         C_l2_ty = np.ndarray[(m * n * n_aie_rows,), np.dtype[dtype_out]] # accumulate n_aie_rows tiles before writing back to L3
@@ -431,9 +440,11 @@ def my_matmul(
                             elem_out = C_l1l2_fifos[row][col].acquire(ObjectFifoPort.Produce, 1)
                             zero(elem_out)
                             
-                            # --- STATIONARY-A POC LOGIC ---
-                            # Reduction loop over dimension K. 
-                            # CONCEPT: Keep A in the core's L1 for a micro-instant longer to reduce NoC syncs.
+                            # Reduction loop over the K dimension.
+                            # A is delivered from the full-K L2 buffering structure as a sequence
+                            # of (m, k) tiles. Each tile is acquired and released at every
+                            # reduction step; therefore this loop does not imply persistent
+                            # residency of A in the Compute Tile L1 memory.
                             for _ in range_(K // k):
                                 elem_in_a = A_l2l1_fifos[row].acquire(ObjectFifoPort.Consume, 1)
                                 elem_in_b = B_l2l1_fifos[col].acquire(ObjectFifoPort.Consume, 1)
@@ -532,22 +543,16 @@ def my_matmul(
 
                             # A input transfer:
                             #
-                            # The smallest transfer unit is a (m*n_A_tiles_per_shim)-sized sub-tile of the input matrix.
-                            # Transfer one such tile for every column, contiguously.
-                            # Repeat this transfer with identical tiles a total of (N//n//n_aie_cols) times.
-                            # Each shim transfers the tiles for separate rows. For example, shim 0 may transfer the
-                            # tiles marked 0 below, and shim 1 may transfer the tiles marked 1.
-                            #             K
-                            #      ----------------
-                            #     |0000000000000000|    (repeated N//n//n_aie_cols times)
-                            #     |0000000000000000|
-                            #     |1111111111111111|
-                            # M   |1111111111111111|
-                            #     |                |
-                            #     |                |
-                            #     |                |
-                            #     |                |
-                            #      ----------------
+                            # Each issued DMA descriptor transfers one full-K slice of A for one
+                            # active AIE row into the corresponding A_L3L2 ObjectFIFO.
+                            #
+                            # The K dimension is decomposed into K/k contiguous (m x k) sub-tiles,
+                            # whose aggregate volume is exactly m x K elements.
+                            #
+                            # For every mapping admitted by the analytical transfer-bound filter,
+                            # N // (n * n_aie_cols) == 1. Therefore the outer zero-stride
+                            # descriptor dimension has extent one and does not itself introduce
+                            # repeated-address reuse in the evaluated design.
                             A_block_offset = (row_base + tile_row) * n_aie_rows * m * K
                             A_row_offset = col * n_A_tiles_per_shim * m * K
                             A_offset = A_block_offset + A_row_offset
@@ -561,8 +566,8 @@ def my_matmul(
                                     bd_id=bd_id_base + 2 * tile_row + 1,
                                     mem=A,
                                     offsets=[0, 0, 0, A_offset],
-                                    sizes=curr_A_sizes,    # Usa la variabile definita sopra
-                                    strides=curr_A_strides, # Usa la variabile definita sopra
+                                    sizes=curr_A_sizes,    
+                                    strides=curr_A_strides, 
                                 )
 
                             if generate_taps:
@@ -570,8 +575,8 @@ def my_matmul(
                                     TensorAccessPattern(
                                         (M, K),
                                         offset=A_offset,
-                                        sizes=curr_A_sizes,    # Correzione NameError
-                                        strides=curr_A_strides,  # Correzione NameError
+                                        sizes=curr_A_sizes,    
+                                        strides=curr_A_strides,  
                                     )
                                 )
 

@@ -1,0 +1,14 @@
+{
+    "last_compiled_dtype": "i16",
+    "last_compiled_mode": "optimized",
+    "512x512x2048_i16": {
+        "m": 16,
+        "k": 16,
+        "n": 256,
+        "gops": 410.032,
+        "search_mode": "exhaustive",
+        "evaluated_tiles": 7,
+        "valid_tiles": 7,
+        "seed": 42
+    }
+}
