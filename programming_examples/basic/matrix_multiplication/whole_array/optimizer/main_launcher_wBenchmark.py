@@ -562,17 +562,18 @@ def run_super_tuner(
             return -gops
 
         # -------------------------------------------------------------
+        # -------------------------------------------------------------
         # Run Projected Differential Evolution.
         #
-        # popsize = 3
+        # popsize = 4
         # optimized dimensions = 3
         #
         # Nominal initial population:
-        #     3 * 3 = 9 individuals
+        #     4 * 3 = 12 individuals
         #
-        # maxiter = 2 was selected from the exhaustive-validation
-        # budget sweep as a compromise between HIL cost and
-        # near-optimal hardware performance.
+        # maxiter = 2 was selected through offline replay over the
+        # exhaustive HIL validation spaces as a compromise between
+        # hardware-evaluation cost and near-optimal performance.
         # -------------------------------------------------------------
 
         differential_evolution(
