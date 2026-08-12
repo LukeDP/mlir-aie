@@ -1,0 +1,15 @@
+  Iteration 1/15... 161.535 GOPS
+  Iteration 2/15... 283.692 GOPS
+  Iteration 3/15... 285.57 GOPS
+  Iteration 4/15... 284.226 GOPS
+  Iteration 5/15... 201.797 GOPS
+  Iteration 6/15... 306.9 GOPS
+  Iteration 7/15... 279.103 GOPS
+  Iteration 8/15... 244.23 GOPS
+  Iteration 9/15... 248.143 GOPS
+  Iteration 10/15... 163.017 GOPS
+  Iteration 11/15... 282.498 GOPS
+  Iteration 12/15... 291.778 GOPS
+  Iteration 13/15... 247.736 GOPS
+  Iteration 14/15... 176.447 GOPS
+  Iteration 15/15... 292.201 GOPS

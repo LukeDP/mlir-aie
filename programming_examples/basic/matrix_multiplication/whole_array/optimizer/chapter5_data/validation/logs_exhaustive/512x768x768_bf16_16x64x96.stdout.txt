@@ -1,0 +1,65 @@
+rm -rf _build
+mkdir -p _build
+cd _build &&  cmake -E env CXXFLAGS="-std=c++23 -ggdb -DDTYPE_IN=std::bfloat16_t -DDTYPE_OUT=std::bfloat16_t -DDTYPE_ACC=float" \
+	cmake `echo /home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/..` -D CMAKE_C_COMPILER=cc -D CMAKE_CXX_COMPILER=g++ -DTARGET_NAME=whole_array -Dsubdir=whole_array
+-- The C compiler identification is GNU 13.3.0
+-- The CXX compiler identification is GNU 13.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (0.2s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build
+cd _build &&  cmake --build . --config Release
+gmake[1]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[2]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[3]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[3]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[3]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+[ 25%] Building CXX object CMakeFiles/test_utils.dir/home/lucadipietro/Desktop/mlir-aie/runtime_lib/test_lib/test_utils.cpp.o
+[ 50%] Linking CXX static library libtest_utils.a
+gmake[3]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+[ 50%] Built target test_utils
+gmake[3]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[3]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[3]: Entering directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+[ 75%] Building CXX object CMakeFiles/whole_array.dir/whole_array/test.cpp.o
+[100%] Linking CXX executable whole_array
+gmake[3]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+[100%] Built target whole_array
+gmake[2]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+gmake[1]: Leaving directory '/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/_build'
+cp _build/whole_array whole_array.exe 
+mkdir -p build
+python3 /home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/whole_array_poc_heuristic.py -M 512 -K 768 -N 768 -m 16 -k 64 -n 96 --n-aie-cols 8 --b-col-maj 0 --dev npu2 --dtype_in bf16 --dtype_out bf16 --dev npu2 -M 512 -K 768 -N 768 --dtype_in bf16 --dtype_out bf16 --trace_size 0 > build/aie_512x768x768_16x64x96_8c.mlir
+mkdir -p build
+cd build && /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/llvm-aie/bin/clang++ -O2 -std=c++20 --target=aie2p-none-unknown-elf -Wno-parentheses -Wno-attributes -Wno-macro-redefined -Wno-empty-body -Wno-missing-template-arg-list-after-template-kw -DNDEBUG -I /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include -Dbf16_bf16_ONLY -DDIM_M=16 -DDIM_K=64 -DDIM_N=96 -DVECTORIZED_ONLY -DOPT_PERF_ENABLED -c /home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/../../../../aie_kernels/aie2p/mm.cc -o mm_16x64x96.o
+mkdir -p build
+cd build && aiecc.py --alloc-scheme=basic-sequential --aie-generate-xclbin --no-compile-host --xclbin-name=final_512x768x768_16x64x96_8c.xclbin \
+			--no-xchesscc --no-xbridge --peano /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/llvm-aie \
+			--aie-generate-npu-insts --npu-insts-name=insts_512x768x768_16x64x96_8c.txt ../build/aie_512x768x768_16x64x96_8c.mlir
+
+export XRT_HACK_UNSECURE_LOADING_XCLBIN=1 && \
+ ./whole_array.exe -x build/final_512x768x768_16x64x96_8c.xclbin -i build/insts_512x768x768_16x64x96_8c.txt -k MLIR_AIE -M 512 -K 768 -N 768 --b_col_maj 0
+
+Avg NPU matmul time: 2116us.
+Avg NPU gflops: 285.435
+
+Min NPU matmul time: 2116us.
+Max NPU gflops: 285.435
+
+Max NPU matmul time: 2116us.
+Min NPU gflops: 285.435
+
+PASS!
+
+--- Extracting Performance (Averaging over 15 runs) ---
+Target: PoC | Dimensions: M=512 K=768 N=768
+>>> Final Average Throughput: 264.403 GOPS

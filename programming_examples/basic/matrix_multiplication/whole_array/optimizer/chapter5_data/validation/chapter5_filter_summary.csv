@@ -1,0 +1,4 @@
+workload_label,M,K,N,Data_Type,m_candidate_count,k_candidate_count,n_candidate_count,Geometric_Candidate_Count,Valid_Tile_Count,Pruning_Percentage,Expected_Valid_Tile_Count,Expected_Count_Match
+BALANCED_INT16,512,512,512,i16,6,8,3,144,21,85.416667,21,1
+TRANSFORMER_BF16,512,768,768,bf16,6,12,4,288,28,90.277778,28,1
+OUTPUT_STRESS_INT16,512,512,2048,i16,6,8,5,240,7,97.083333,7,1

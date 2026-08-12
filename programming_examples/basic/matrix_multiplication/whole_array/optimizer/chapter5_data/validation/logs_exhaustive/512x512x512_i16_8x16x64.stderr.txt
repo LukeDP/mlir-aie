@@ -1,0 +1,49 @@
+In file included from /home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/../../../../aie_kernels/aie2p/mm.cc:19:
+In file included from /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/aie.hpp:41:
+In file included from /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/abs.hpp:63:
+In file included from /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/abs.hpp:10:
+In file included from /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../broadcast.hpp:13:
+In file included from /home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../../accum.hpp:30:
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../../detail/aie2p/accum.hpp:1018:120: warning: 'srs_to_v16int32' is deprecated: Function 'srs_to_v16int32 ()' is deprecated. Please use 'to_v16int32 ()' instead. [-Wdeprecated-declarations]
+ 1018 |                     return [](const accum_base<Class, MinBits, 16> &acc, int shift, bool sign) __aie_inline { return ::srs_to_v16int32(acc, shift, sign);  };
+      |                                                                                                                        ^
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../../detail/aie2p/accum.hpp:1018:109: note: while substituting into a lambda expression here
+ 1018 |                     return [](const accum_base<Class, MinBits, 16> &acc, int shift, bool sign) __aie_inline { return ::srs_to_v16int32(acc, shift, sign);  };
+      |                                                                                                             ^
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../../detail/aie2p/accum.hpp:635:37: note: in instantiation of function template specialization 'aie::detail::accum_base<aie::detail::AccumClass::Int, 64, 32>::get_srs<int>' requested here
+  635 |             constexpr auto srs_fn = get_srs<T>();
+      |                                     ^
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/aie2/../../accum.hpp:423:36: note: in instantiation of function template specialization 'aie::detail::accum_base<aie::detail::AccumClass::Int, 64, 32>::to_vector_sign<int>' requested here
+  423 |         return base_type::template to_vector_sign<T>(v_sign, shift);
+      |                                    ^
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/mlir_aie/include/aie_api/detail/mmul.hpp:440:30: note: in instantiation of function template specialization 'aie::accum<__acc64, 32>::to_vector_sign<int>' requested here
+  440 |         return data.template to_vector_sign<T>(v_sign, shift);
+      |                              ^
+/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/../../../../aie_kernels/aie2p/mm.cc:188:44: note: in instantiation of function template specialization 'aie::mmul<4, 4, 8, short>::to_vector<int>' requested here
+  188 |             aie::store_v(pC1, C00.template to_vector<T_out>());
+      |                                            ^
+/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/../../../../aie_kernels/aie2p/mm.cc:270:10: note: in instantiation of function template specialization 'matmul_vectorized_2x2_mmul<short, int, 2U, 4U, 8U, 4U, 4U, 8U, true, true>' requested here
+  270 |   return matmul_vectorized_2x2_mmul<int16, int32, (m / r), (k / s), (n / t), r,
+      |          ^
+/home/lucadipietro/Desktop/mlir-aie/programming_examples/basic/matrix_multiplication/whole_array/../../../../aie_kernels/aie2p/mm.cc:501:8: note: in instantiation of function template specialization 'matmul_vectorized_4x4x8_i16_i32<8U, 16U, 64U>' requested here
+  501 | combos(matmul_vectorized_c_func) combos(matmul_scalar_c_func)
+      |        ^
+/home/lucadipietro/Desktop/mlir-aie/ironenv/lib/python3.12/site-packages/llvm-aie/lib/clang/20/include/aie2p/aie2p_srs.h:839:3: note: 'srs_to_v16int32' has been explicitly marked deprecated here
+  839 | [[deprecated("Function 'srs_to_v16int32 ()' is deprecated. Please use "
+      |   ^
+1 warning generated.
+  Iteration 1/15... 136.887 GOPS
+  Iteration 2/15... 132.955 GOPS
+  Iteration 3/15... 120.321 GOPS
+  Iteration 4/15... 132.823 GOPS
+  Iteration 5/15... 115.258 GOPS
+  Iteration 6/15... 120.645 GOPS
+  Iteration 7/15... 111.384 GOPS
+  Iteration 8/15... 133.95 GOPS
+  Iteration 9/15... 98.9441 GOPS
+  Iteration 10/15... 135.3 GOPS
+  Iteration 11/15... 95.1224 GOPS
+  Iteration 12/15... 135.711 GOPS
+  Iteration 13/15... 119.358 GOPS
+  Iteration 14/15... 128.193 GOPS
+  Iteration 15/15... 138.298 GOPS
